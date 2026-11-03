@@ -5,6 +5,9 @@
 
 :root {
   color-scheme: light;
+  /* height of the sticky app header — the table headers stick right below it
+     (main.ts keeps this exact; the value here is the pre-measure fallback) */
+  --appbar-h: 58px;
   --background: #f4f6f9;
   --card: #ffffff;
   --subtle: #f7f9fb;

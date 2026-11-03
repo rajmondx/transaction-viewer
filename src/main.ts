@@ -14,6 +14,15 @@ import { hasTabPrintHandler, setTabPrintHandler, triggerTabPrint } from './ui/pr
 
 const content = document.getElementById('content') as HTMLElement;
 
+// the sticky table headers (CSV + Spending) stick right below the app header —
+// keep its measured height in --appbar-h so the offset never has to be guessed
+const appHeader = document.getElementById('app-header') as HTMLElement;
+function syncAppBarH(): void {
+  document.documentElement.style.setProperty('--appbar-h', `${appHeader.offsetHeight}px`);
+}
+syncAppBarH();
+new ResizeObserver(syncAppBarH).observe(appHeader);
+
 // static about/contact footer — outside the tab content, so it stays visible on every page
 renderAppFooter(document.getElementById('app-footer') as HTMLElement);
 

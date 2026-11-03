@@ -25,6 +25,10 @@ export interface SpendingView {
   avgMode: AvgMode;
   /** Share chart: also show each sub-category in a block under its top-level category */
   shareSubs: boolean;
+  /** horizontal freezing of each static column, toggled by clicking its header.
+   *  A missing key = automatic for that column (pinned on desktop, free on tablet
+   *  and below); clicking a header stores an explicit choice just for that column. */
+  pinStatic?: Partial<Record<'cat' | 'avg' | 'total', boolean>>;
 }
 
 function lsKey(name: string): string {
@@ -34,7 +38,15 @@ function lsKey(name: string): string {
 export function loadSpendingView(settingsName: string): SpendingView {
   try {
     const raw = localStorage.getItem(lsKey(settingsName));
-    if (raw) return { ...defaultSpendingView(), ...(JSON.parse(raw) as SpendingView) };
+    if (raw) {
+      const v = { ...defaultSpendingView(), ...(JSON.parse(raw) as SpendingView) };
+      // older builds stored one boolean freezing all three static columns at once
+      if (typeof (v.pinStatic as unknown) === 'boolean') {
+        const b = v.pinStatic as unknown as boolean;
+        v.pinStatic = { cat: b, avg: b, total: b };
+      }
+      return v;
+    }
   } catch { /* ignore */ }
   return defaultSpendingView();
 }

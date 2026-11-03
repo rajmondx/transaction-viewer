@@ -1,4 +1,5 @@
 import { num2, readableOn } from './util';
+import { attachDragPan } from './dragScroll';
 
 export interface Series {
   name: string;
@@ -15,7 +16,8 @@ export interface Series {
  * The SVG is drawn at 1:1 pixel scale — the viewBox always matches its own size — so
  * month labels and totals are never stretched. The width follows the space available in
  * the card (between 64 and 190 px per month): a couple of months do not sprawl over the
- * whole card, many months scroll horizontally instead of squeezing their labels together.
+ * whole card, many months scroll horizontally instead of squeezing their labels together
+ * — and can be dragged sideways to scroll (see dragScroll.ts).
  * Returns an HTMLElement.
  */
 export function stackedBars(months: string[], series: Series[], height = 260): HTMLElement {
@@ -28,6 +30,8 @@ export function stackedBars(months: string[], series: Series[], height = 260): H
 
   const wrap = document.createElement('div');
   wrap.className = 'overflow-x-auto';
+  // many months: the chart is wider than the card — grab and slide to scroll it
+  attachDragPan(wrap);
   const svg = document.createElementNS(NS, 'svg');
   svg.setAttribute('class', 'block');
   svg.style.height = `${height}px`;
@@ -127,6 +131,8 @@ export function stackedBars(months: string[], series: Series[], height = 260): H
         ro.disconnect();
         return;
       }
+      // the grab cursor only while the chart really is wider than the card
+      wrap.classList.toggle('cursor-grab', wrap.scrollWidth > wrap.clientWidth + 1);
       const avail = wrap.getBoundingClientRect().width;
       const w = widthFor(avail);
       if (w !== lastWidth) {
@@ -244,7 +250,9 @@ export function shareBars(
     valEl.textContent = num2(it.value); // currency is stated once in the headline, not on every row
 
     const row = document.createElement('div');
-    row.className = 'grid items-center gap-2 text-xs';
+    // zebra striping like the CSV/Spending tables — alternating over all rows,
+    // including the sub-category rows inside a group
+    row.className = 'grid items-center gap-2 text-xs ' + (rows.length % 2 === 1 ? 'bg-zebra' : 'bg-card');
     // start mobile-style (name inside the bar); apply() switches once the size is known
     row.style.gridTemplateColumns = '1fr 48px 92px';
     name.style.display = 'none';

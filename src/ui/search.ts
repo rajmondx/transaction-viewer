@@ -10,7 +10,6 @@ export interface CsvFilter {
   dateFrom: string;
   dateTo: string;
   direction: 'all' | 'income' | 'expense';
-  onlyUncategorized: boolean;
   /** selected category tags (empty = all categories) */
   selectedCats: string[];
 }
@@ -25,7 +24,6 @@ export function defaultCsvFilter(): CsvFilter {
     dateFrom: '',
     dateTo: '',
     direction: 'all',
-    onlyUncategorized: false,
     selectedCats: [],
   };
 }
@@ -70,7 +68,6 @@ export function filterTxs(
   txs: Tx[],
   f: CsvFilter,
   categoryOf: (tx: Tx) => string,
-  uncategorizedTag: string,
 ): Tx[] {
   const min = parseAmountInput(f.minAmount);
   const max = parseAmountInput(f.maxAmount);
@@ -81,7 +78,6 @@ export function filterTxs(
     if (f.dateTo && tx.bookingDate && tx.bookingDate > f.dateTo) return false;
     if (min !== null && Number.isFinite(min) && txAmount(tx) < min) return false;
     if (max !== null && Number.isFinite(max) && txAmount(tx) > max) return false;
-    if (f.onlyUncategorized && categoryOf(tx) !== uncategorizedTag) return false;
     if (f.selectedCats.length > 0 && !f.selectedCats.includes(categoryOf(tx))) return false;
     if (f.text !== '') {
       const ok =

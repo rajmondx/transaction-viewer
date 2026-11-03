@@ -52,31 +52,31 @@ describe('filterTxs', () => {
 
   it('amount range filters by magnitude', () => {
     const f = { ...defaultCsvFilter(), minAmount: '100', maxAmount: '' };
-    expect(filterTxs(txs, f, catOf, 'Uncategorized').map((t) => t.ref)).toEqual(['A2', 'A3']);
+    expect(filterTxs(txs, f, catOf).map((t) => t.ref)).toEqual(['A2', 'A3']);
   });
   it('date range', () => {
     const f = { ...defaultCsvFilter(), dateFrom: '2026-09-01', dateTo: '2026-10-01' };
-    expect(filterTxs(txs, f, catOf, 'Uncategorized').map((t) => t.ref)).toEqual(['A1', 'A2']);
+    expect(filterTxs(txs, f, catOf).map((t) => t.ref)).toEqual(['A1', 'A2']);
   });
   it('direction', () => {
-    expect(filterTxs(txs, { ...defaultCsvFilter(), direction: 'income' }, catOf, 'Uncategorized').map((t) => t.ref)).toEqual(['A2']);
-    expect(filterTxs(txs, { ...defaultCsvFilter(), direction: 'expense' }, catOf, 'Uncategorized').map((t) => t.ref)).toEqual(['A1', 'A3']);
+    expect(filterTxs(txs, { ...defaultCsvFilter(), direction: 'income' }, catOf).map((t) => t.ref)).toEqual(['A2']);
+    expect(filterTxs(txs, { ...defaultCsvFilter(), direction: 'expense' }, catOf).map((t) => t.ref)).toEqual(['A1', 'A3']);
   });
   it('multi-category selection', () => {
     const catOf = (t: Tx) => (t.ref === 'A1' ? 'Lebensmittel' : t.ref === 'A2' ? 'Einkommen' : 'Uncategorized');
     const f = { ...defaultCsvFilter(), selectedCats: ['Lebensmittel', 'Uncategorized'] };
-    expect(filterTxs(txs, f, catOf, 'Uncategorized').map((t) => t.ref)).toEqual(['A1', 'A3']);
+    expect(filterTxs(txs, f, catOf).map((t) => t.ref)).toEqual(['A1', 'A3']);
     const f2 = { ...defaultCsvFilter(), selectedCats: [] };
-    expect(filterTxs(txs, f2, catOf, 'Uncategorized')).toHaveLength(3);
+    expect(filterTxs(txs, f2, catOf)).toHaveLength(3);
   });
   it('text search searches ref and iban too', () => {
-    expect(filterTxs(txs, { ...defaultCsvFilter(), text: 'A3' }, catOf, 'Uncategorized').map((t) => t.ref)).toEqual(['A3']);
+    expect(filterTxs(txs, { ...defaultCsvFilter(), text: 'A3' }, catOf).map((t) => t.ref)).toEqual(['A3']);
   });
   it('combined: case-sensitive + amount + fuzzy', () => {
     const f = { ...defaultCsvFilter(), text: 'LIDL', caseSensitive: true, minAmount: '190' };
-    expect(filterTxs(txs, f, catOf, 'Uncategorized').map((t) => t.ref)).toEqual(['A3']);
+    expect(filterTxs(txs, f, catOf).map((t) => t.ref)).toEqual(['A3']);
     const f2 = { ...defaultCsvFilter(), text: 'lidl', minAmount: '210' };
-    expect(filterTxs(txs, f2, catOf, 'Uncategorized')).toHaveLength(0);
+    expect(filterTxs(txs, f2, catOf)).toHaveLength(0);
   });
 });
 

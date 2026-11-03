@@ -8,6 +8,7 @@ import { defaultCsvFilter, filterTxs, highlight, txAmount, type CsvFilter } from
 import { matchTx, UNCAT } from '../../categories/engine';
 import { C, clear, cx, dmy, field, h, num0, num2, readableOn, toast } from '../util';
 import { attachCellSelect, clearColumnSelect } from '../cellSelect';
+import { attachDragPan } from '../dragScroll';
 import { colResizeHandle } from '../colResize';
 import { Ic } from '../icons';
 import { buildCsvPrintDoc, fontControls, mergedAmountCell, mergedDateCell, mergedDescCell, mergedNetTotal, openPrintModal, printCheck, printDateInput, printHtml, printRadio, savePrintStyle, setTabPrintHandler, type CsvPrintColumn } from '../print';
@@ -19,6 +20,10 @@ interface CsvTabState {
   page: number;
   pickerOpen: boolean;
   pageSize: number;
+  /** column visibility (persisted): Value date and Order no. default off, amounts default merged */
+  showValue: boolean;
+  showRef: boolean;
+  merged: boolean;
 }
 const PAGE_SIZES = [25, 50, 100, 250, 500, 0]; // 0 = show all
 const PGKEY = 'banking.csvPageSize';
@@ -31,10 +36,25 @@ function loadPageSize(): number {
   // 250 rows: a full month of transactions in one screen on a desktop
   return raw !== null && PAGE_SIZES.includes(n) ? n : 250;
 }
-const ui: CsvTabState = { sortKey: 'date', sortDir: -1, page: 0, pickerOpen: false, pageSize: loadPageSize() };
+const COLVIS_KEY = 'banking.csvCols';
+function loadColVis(): Pick<CsvTabState, 'showValue' | 'showRef' | 'merged'> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(COLVIS_KEY) ?? 'null') as Record<string, unknown> | null;
+    if (raw && typeof raw === 'object') {
+      return { showValue: raw.showValue === true, showRef: raw.showRef === true, merged: raw.merged !== false };
+    }
+  } catch { /* ignore */ }
+  return { showValue: false, showRef: false, merged: true };
+}
+function saveColVis(): void {
+  try {
+    localStorage.setItem(COLVIS_KEY, JSON.stringify({ showValue: ui.showValue, showRef: ui.showRef, merged: ui.merged }));
+  } catch { /* ignore */ }
+}
+const ui: CsvTabState = { sortKey: 'date', sortDir: -1, page: 0, pickerOpen: false, pageSize: loadPageSize(), ...loadColVis() };
 
 // ---- resizable columns ----
-type ColKey = 'date' | 'value' | 'ref' | 'text' | 'cat' | 'credit' | 'debit';
+type ColKey = 'date' | 'value' | 'ref' | 'text' | 'cat' | 'credit' | 'debit' | 'amount';
 interface ColDef { key: ColKey; label: string; /** original German header in the CSV files */ de?: string; def: number; sort?: SortKey; num?: boolean }
 const COLS: ColDef[] = [
   { key: 'date', label: 'Booking date', de: 'Buchungsdatum', def: 110, sort: 'date', num: true },
@@ -45,10 +65,26 @@ const COLS: ColDef[] = [
   { key: 'credit', label: 'Credit', de: 'Gutschrift', def: 105, sort: 'amount', num: true },
   { key: 'debit', label: 'Debit', de: 'Belastung', def: 105, num: true },
 ];
+/** virtual display column that replaces Credit + Debit when the amounts are merged */
+const AMOUNT_COL: ColDef = { key: 'amount', label: 'Amount', def: 130, sort: 'amount', num: true };
+/** every key that can own a width — the print dialog still offers only the seven real CSV columns */
+const ALL_COLS: ColDef[] = [...COLS, AMOUNT_COL];
 const MIN_COL_W = 64;
 const COLW_KEY = 'banking.csvColW';
 /** cell classes for clipping long content with an ellipsis */
 const CELL = 'overflow-hidden text-ellipsis';
+
+/** the columns currently shown, in table order */
+function shownCols(): ColDef[] {
+  return [
+    COLS[0],
+    ...(ui.showValue ? [COLS[1]] : []),
+    ...(ui.showRef ? [COLS[2]] : []),
+    COLS[3],
+    COLS[4],
+    ...(ui.merged ? [AMOUNT_COL] : [COLS[5], COLS[6]]),
+  ];
+}
 
 function loadColW(): Record<ColKey, number> {
   let saved: Record<string, unknown> = {};
@@ -56,7 +92,7 @@ function loadColW(): Record<ColKey, number> {
     saved = JSON.parse(localStorage.getItem(COLW_KEY) ?? '{}') as Record<string, unknown>;
   } catch { saved = {}; }
   const out = {} as Record<ColKey, number>;
-  for (const c of COLS) {
+  for (const c of ALL_COLS) {
     const n = Number(saved[c.key]);
     out[c.key] = Number.isFinite(n) && n >= MIN_COL_W ? n : c.def;
   }
@@ -136,12 +172,12 @@ let printOpts = loadPrintOpts();
 let justDragged = false;
 
 /** drag handle on a column edge: drag to resize, double-click to reset to the default width */
-function resizer(c: ColDef, col: HTMLTableColElement, sync: () => void): HTMLElement {
+function resizer(c: ColDef, cols: HTMLTableColElement[], sync: () => void): HTMLElement {
   return colResizeHandle({
     width: () => colW[c.key],
     apply: (px) => {
       colW[c.key] = px === 0 ? c.def : px;
-      col.style.width = `${colW[c.key]}px`;
+      for (const col of cols) col.style.width = `${colW[c.key]}px`;
       sync();
     },
     commit: () => {
@@ -244,9 +280,13 @@ export function renderCsvTab(container: HTMLElement): void {
   dirSel.value = f.direction;
   dirSel.onchange = () => { f.direction = dirSel.value as CsvFilter['direction']; ui.page = 0; refresh(); };
 
-  const uncCb = h('input', { attrs: { type: 'checkbox', checked: f.onlyUncategorized ? 'checked' : null } }) as HTMLInputElement;
-  uncCb.checked = f.onlyUncategorized;
-  uncCb.onchange = () => { f.onlyUncategorized = uncCb.checked; ui.page = 0; refresh(); };
+  // ---- column visibility toggles (persisted; defaults: value date off, order no. off, merged on) ----
+  const colTog = (fk: string, label: string, title: string, on: boolean, set: (v: boolean) => void): HTMLElement => {
+    const cb = h('input', { dataset: { fk }, attrs: { type: 'checkbox', checked: on ? 'checked' : null } }) as HTMLInputElement;
+    cb.checked = on;
+    cb.onchange = () => { set(cb.checked); saveColVis(); ui.page = 0; refresh(); };
+    return h('label', { class: cx(C.chipBase, C.chipSm, on ? C.chipOn : C.chipNeutral), title }, cb, label);
+  };
 
   // ---- category multi-select ----
   const allTags: string[] = [...state.settings.categories.map((c) => c.tag), UNCAT];
@@ -299,15 +339,17 @@ export function renderCsvTab(container: HTMLElement): void {
       field('Amount', Banknote, minIn, '–', maxIn),
       csvDateField,
       field('Categories', Tags, catPicker),
-      field('Options', ListFilter,
-        h('label', { class: cx(C.chipBase, C.chipSm, f.onlyUncategorized ? C.chipOn : C.chipNeutral) }, uncCb, 'Uncategorized only'),
+      field('Columns', ListFilter,
+        colTog('csv-col-value', 'Value date', 'show the Value date (Valuta) column', ui.showValue, (v) => { ui.showValue = v; }),
+        colTog('csv-col-ref', 'Order no.', 'show the Order no. (Auftragsnummer) column', ui.showRef, (v) => { ui.showRef = v; }),
+        colTog('csv-col-merge', 'Merge amounts', 'one signed Amount column instead of separate Credit and Debit columns', ui.merged, (v) => { ui.merged = v; }),
         resetBtn),
     ),
   ));
 
   // ---- table ----
   const categoryOf = (tx: Tx) => matchTx(tx, state.settings);
-  const filtered = filterTxs(state.txs, f, categoryOf, UNCAT);
+  const filtered = filterTxs(state.txs, f, categoryOf);
   filtered.sort((a, b) => {
     const dir = ui.sortDir;
     if (ui.sortKey === 'date') return dir * (a.bookingDate.localeCompare(b.bookingDate) || a.ref.localeCompare(b.ref));
@@ -323,21 +365,42 @@ export function renderCsvTab(container: HTMLElement): void {
   let sumIn = 0, sumOut = 0;
   for (const t of filtered) { sumIn += t.credit; sumOut += t.debit; }
 
-  const table = h('table', { class: 'min-w-full border-collapse text-xs', style: { tableLayout: 'fixed' } });
-  const colEls = COLS.map((c) => h('col', { style: { width: `${colW[c.key]}px` } }));
-  table.appendChild(h('colgroup', {}, ...colEls));
-  const syncTableW = () => {
-    table.style.width = `${COLS.reduce((s, c) => s + colW[c.key], 0)}px`;
+  // ---- table ----
+  // Header and body are two stacked tables sharing the same <col> widths: the header
+  // box sticks at menu level while the body box owns the horizontal scroll (a single
+  // table inside an overflow wrapper would trap the sticky header in that wrapper —
+  // same pattern as the Spending matrix). The table never overspans the window: when
+  // the shown columns need more room than there is, the body scrolls — scrollbar,
+  // trackpad or grab-drag anywhere on it.
+  // border-separate (not collapse): with collapse, browsers drop a sticky cell's
+  // border once it detaches from the grid — the 2px header rule would vanish.
+  const shown = shownCols();
+  const mkTable = (): { table: HTMLElement; colgroup: HTMLElement } => {
+    const table = h('table', { class: 'border-separate border-spacing-0 text-xs cursor-grab', style: { tableLayout: 'fixed' } });
+    const colgroup = h('colgroup');
+    table.appendChild(colgroup);
+    return { table, colgroup };
   };
-  syncTableW();
+  const head = mkTable();
+  const body = mkTable();
+
+  /** both tables must always occupy exactly the same width */
+  const syncTableW = (): void => {
+    const px = shown.reduce((s, c) => s + colW[c.key], 0);
+    for (const t of [head.table, body.table]) {
+      t.style.width = `${px}px`;
+      t.style.minWidth = '100%';
+    }
+  };
 
   const headRow = h('tr');
-  COLS.forEach((c, ci) => {
+  shown.forEach((c) => {
     const th = h('th', {
       class: cx(C.th, 'relative overflow-hidden text-ellipsis', c.num && C.num,
         c.sort && 'cursor-pointer select-none hover:text-foreground',
         c.sort && ui.sortKey === c.sort && 'text-foreground'),
-      title: c.de ? `CSV column: ${c.de}` : 'assigned by the category rules (Categories tab)',
+      title: c.key === 'amount' ? 'Credit and Debit merged into one signed column'
+        : c.de ? `CSV column: ${c.de}` : 'assigned by the category rules (Categories tab)',
     });
     if (c.sort) {
       const key = c.sort;
@@ -352,40 +415,80 @@ export function renderCsvTab(container: HTMLElement): void {
     } else {
       th.textContent = c.label;
     }
-    th.appendChild(resizer(c, colEls[ci], syncTableW));
+    const cols = [h('col'), h('col')];
+    for (const col of cols) col.style.width = `${colW[c.key]}px`;
+    head.colgroup.appendChild(cols[0]);
+    body.colgroup.appendChild(cols[1]);
+    th.appendChild(resizer(c, cols, syncTableW));
     headRow.appendChild(th);
   });
-  table.appendChild(h('thead', {}, headRow));
+  head.table.appendChild(h('thead', {}, headRow));
 
   const tbody = h('tbody');
   for (const [ri, t] of pageRows.entries()) {
     const catTag = categoryOf(t);
     // zebra striping: every second row carries the alternating tint
     const tr = h('tr', { class: cx('hover:bg-muted/40', ri % 2 === 1 && 'bg-zebra') });
-    tr.appendChild(h('td', { class: cx(C.td, CELL, C.num, C.mono), text: dmy(t.bookingDate) }));
-    tr.appendChild(h('td', { class: cx(C.td, CELL, C.num, C.mono, C.muted), text: dmy(t.valueDate) }));
-    tr.appendChild(h('td', { class: cx(C.td, CELL, C.mono, C.muted), text: t.ref, title: t.ref }));
-    const td = h('td', { class: cx(C.td, CELL), title: t.text, text: '' });
-    td.innerHTML = highlight(t.text, f.fuzzy ? '' : f.text, f.caseSensitive);
-    tr.appendChild(td);
-    tr.appendChild(h('td', { class: cx(C.td, CELL) }, (() => {
-      const chipColor = categoryColor(catTag);
-      return h('button', {
-        // text color is picked from the category color, so pale fills never end up with white text
-        class: 'max-w-full cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap border-0 px-2.5 py-0.5 text-[11px] font-medium transition-[filter] hover:brightness-110',
-        style: { background: chipColor, color: readableOn(chipColor) },
-        title: `${catTag} · click to filter by this category (again to remove)`,
-        onclick: () => toggleCat(catTag),
-      }, catTag);
-    })()));
-    tr.appendChild(h('td', { class: cx(C.td, CELL, C.num, 'text-success'), text: t.credit > 0 ? num2(t.credit) : '' }));
-    tr.appendChild(h('td', { class: cx(C.td, CELL, C.num, 'text-danger'), text: t.debit > 0 ? `−${num2(t.debit)}` : '' }));
+    for (const c of shown) {
+      switch (c.key) {
+        case 'date':
+          tr.appendChild(h('td', { class: cx(C.td, CELL, C.num, C.mono), text: dmy(t.bookingDate) }));
+          break;
+        case 'value':
+          tr.appendChild(h('td', { class: cx(C.td, CELL, C.num, C.mono, C.muted), text: dmy(t.valueDate) }));
+          break;
+        case 'ref':
+          tr.appendChild(h('td', { class: cx(C.td, CELL, C.mono, C.muted), text: t.ref, title: t.ref }));
+          break;
+        case 'text': {
+          const td = h('td', { class: cx(C.td, CELL), title: t.text, text: '' });
+          td.innerHTML = highlight(t.text, f.fuzzy ? '' : f.text, f.caseSensitive);
+          tr.appendChild(td);
+          break;
+        }
+        case 'cat':
+          tr.appendChild(h('td', { class: cx(C.td, CELL) }, (() => {
+            const chipColor = categoryColor(catTag);
+            return h('button', {
+              // text color is picked from the category color, so pale fills never end up with white text
+              class: 'max-w-full cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap border-0 px-2.5 py-0.5 text-[11px] font-medium transition-[filter] hover:brightness-110',
+              style: { background: chipColor, color: readableOn(chipColor) },
+              title: `${catTag} · click to filter by this category (again to remove)`,
+              onclick: () => toggleCat(catTag),
+            }, catTag);
+          })()));
+          break;
+        case 'credit':
+          tr.appendChild(h('td', { class: cx(C.td, CELL, C.num, 'text-success'), text: t.credit > 0 ? num2(t.credit) : '' }));
+          break;
+        case 'debit':
+          tr.appendChild(h('td', { class: cx(C.td, CELL, C.num, 'text-danger'), text: t.debit > 0 ? `−${num2(t.debit)}` : '' }));
+          break;
+        case 'amount': {
+          // one signed column: income with a +, expense with a −, colored as before
+          const v = t.credit > 0 ? `+${num2(t.credit)}` : t.debit > 0 ? `−${num2(t.debit)}` : '';
+          tr.appendChild(h('td', { class: cx(C.td, CELL, C.num, t.credit > 0 && 'text-success', t.debit > 0 && 'text-danger'), text: v }));
+          break;
+        }
+      }
+    }
     tr.title = `IBAN ${t.ibanDisplay || t.iban} · ${t.file} row ${t.row}`;
     tbody.appendChild(tr);
   }
-  table.appendChild(tbody);
-  attachCellSelect(tbody, (ci) => COLS[ci]?.label ?? 'Column');
-  container.appendChild(h('div', { class: cx(C.scroll, 'max-h-[66vh] overflow-y-auto') }, table));
+  body.table.appendChild(tbody);
+  syncTableW();
+  attachCellSelect(tbody, (ci) => shown[ci]?.label ?? 'Column');
+
+  const headBox = h('div', { class: cx(C.card, 'sticky top-[var(--appbar-h)] z-20 overflow-x-hidden border-b-0') }, head.table);
+  const bodyBox = h('div', { class: cx(C.card, 'overflow-x-auto border-t-0') }, body.table);
+  bodyBox.addEventListener('scroll', () => { headBox.scrollLeft = bodyBox.scrollLeft; }, { passive: true });
+  // grab-and-slide panning over the whole table (single clicks still select a
+  // cell's text — only the click that ends a real drag is swallowed; controls
+  // like the category chips keep their own behavior)
+  attachDragPan(bodyBox);
+  attachDragPan(bodyBox, headBox);
+  container.appendChild(headBox);
+  container.appendChild(bodyBox);
 
   // ---- rows per page + pager ----
   const sizeSel = h('select', {
@@ -495,6 +598,7 @@ export function renderCsvTab(container: HTMLElement): void {
           case 'cat': return categoryOf(t);
           case 'credit': return t.credit > 0 ? num2(t.credit) : '';
           case 'debit': return t.debit > 0 ? `−${num2(t.debit)}` : '';
+          case 'amount': return mergedAmountCell(t.credit, t.debit);
         }
       };
       // columns in display order, honoring the merge options
@@ -567,7 +671,6 @@ export function renderCsvTab(container: HTMLElement): void {
         f.minAmount || f.maxAmount ? `Amount: ${f.minAmount || '0'} – ${f.maxAmount || 'open'}` : null,
         f.dateFrom || f.dateTo ? `Date range: ${f.dateFrom ? dmy(f.dateFrom) : '…'} → ${f.dateTo ? dmy(f.dateTo) : '…'}` : null,
         f.direction !== 'all' ? `Direction: ${f.direction}` : null,
-        f.onlyUncategorized ? 'Uncategorized only' : null,
         f.selectedCats.length > 0 ? `Categories: ${f.selectedCats.join(', ')}` : null,
       ].filter((s): s is string => s !== null);
       printHtml(buildCsvPrintDoc({

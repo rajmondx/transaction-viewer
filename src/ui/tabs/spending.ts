@@ -1,10 +1,11 @@
-import { SlidersHorizontal, CalendarDays, CalendarRange, Calculator, ChartColumn, ChartPie, ChevronDown, ChevronRight, ArrowLeftRight, Eye, Printer, ReceiptText, Tags, TrendingDown, TrendingUp, Type } from 'lucide';
+import { SlidersHorizontal, CalendarDays, CalendarRange, Calculator, ChartColumn, ChartPie, ChevronDown, ChevronRight, ArrowLeftRight, Eye, Pin, Printer, ReceiptText, Tags, TrendingDown, TrendingUp, Type } from 'lucide';
 import type { IconNode } from 'lucide';
 import type { Agg, Month, Tx } from '../../types';
 import { state, selectSettings, saveSpendingView, emit, type AvgMode } from '../../state';
 import { aggregate, buildTree, flattenTree, matchTx, monthsFromTxs, UNCAT, type TreeNode } from '../../categories/engine';
 import { C, clear, cx, dmy, field, h, money, monthLabel, monthKey, num0, num2, toast } from '../util';
 import { attachCellSelect, clearColumnSelect } from '../cellSelect';
+import { attachDragPan } from '../dragScroll';
 import { colResizeHandle } from '../colResize';
 import { noCsvCard } from '../addCsv';
 import { Ic } from '../icons';
@@ -19,6 +20,32 @@ const SP_CELL = 'overflow-hidden text-ellipsis';
 // ---- resizable columns (widths per column key: 'cat', 'total', 'avg' or a month) ----
 const SP_COLW_KEY = 'banking.spendingColW';
 const SP_MIN_W = 88;
+
+// ---- static-column pinning ----
+// each static column (Category / Average / Total) is pinned on its own; a column
+// without an explicit choice follows the viewport: pinned from the app's `wide`
+// breakpoint up, free on tablet/mobile. Clicking a static header stores its choice.
+const PIN_BREAKPOINT = 1041;
+const autoPin = (): boolean => window.innerWidth >= PIN_BREAKPOINT;
+let pinResizeWired = false;
+/** while any column is still in auto mode, re-evaluate it when the window crosses
+ *  the breakpoint (columns with an explicit click-stored choice are left alone) */
+function wirePinAutoResize(): void {
+  if (pinResizeWired) return;
+  pinResizeWired = true;
+  let last = autoPin();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  window.addEventListener('resize', () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      if (state.activeTab !== 'spending') return;
+      const p = state.spendingView.pinStatic ?? {};
+      if (p.cat !== undefined && p.avg !== undefined && p.total !== undefined) return; // all explicit
+      const now = autoPin();
+      if (now !== last) { last = now; emit(); }
+    }, 150);
+  });
+}
 
 function loadSpColW(): Record<string, number> {
   let saved: Record<string, unknown> = {};
@@ -230,8 +257,8 @@ export function renderSpending(container: HTMLElement): void {
     }),
   );
 
-  // ---- month toggles ----
-  const monthChips = allMonths.map((mo) => {
+  // ---- month toggles: grouped by year, one row per year ----
+  const chipFor = (mo: Month): HTMLElement => {
     const on = !view.hiddenMonths.includes(mo);
     const cbEl = h('input', { dataset: { fk: `smo-${mo}` }, attrs: { type: 'checkbox', checked: on ? 'checked' : null } }) as HTMLInputElement;
     cbEl.checked = on;
@@ -239,17 +266,46 @@ export function renderSpending(container: HTMLElement): void {
       view.hiddenMonths = cbEl.checked ? view.hiddenMonths.filter((x) => x !== mo) : [...view.hiddenMonths, mo];
       persist(); emit();
     };
-    return h('label', { class: cx(C.chipBase, C.chipSm, on ? C.chipOn : C.chipOff) }, cbEl, monthLabel(mo));
-  });
+    // the year already labels the row — the chip only needs the month name
+    return h('label', { class: cx(C.chipBase, C.chipSm, on ? C.chipOn : C.chipOff) }, cbEl, monthLabel(mo).slice(0, 3));
+  };
+  const yearGroups: Array<{ year: string; months: Month[] }> = [];
+  for (const mo of allMonths) {
+    const g = yearGroups[yearGroups.length - 1];
+    const y = mo.slice(0, 4);
+    if (g && g.year === y) g.months.push(mo);
+    else yearGroups.push({ year: y, months: [mo] });
+  }
 
+  /** click a year label: select every month of it, or deselect them all if already on */
+  const toggleYear = (months: Month[]): void => {
+    const allOn = months.every((mo) => !view.hiddenMonths.includes(mo));
+    view.hiddenMonths = allOn
+      ? [...view.hiddenMonths, ...months]
+      : view.hiddenMonths.filter((x) => !months.includes(x));
+    persist(); emit();
+  };
   // ---- filter toolbar: labeled groups, months spanning the full width ----
   settingsSel.title = 'category settings used to classify the transactions';
-  const monthsField = field('Months', CalendarDays,
-    ...monthChips,
-    h('button', { dataset: { fk: 'smo-all' }, class: C.link, text: 'all', onclick: () => { view.hiddenMonths = []; persist(); emit(); } }),
-    h('button', { dataset: { fk: 'smo-none' }, class: C.link, text: 'none', onclick: () => { view.hiddenMonths = [...allMonths]; persist(); emit(); } }),
-  );
-  monthsField.classList.add('col-span-full');
+  // 'all' / 'none' sit in the caption row right next to the counted "Months" label;
+  // same structure field() builds (caption above, controls below)
+  const monthsField = h('div', { class: 'col-span-full flex min-w-0 flex-col gap-1.5' },
+    h('span', { class: cx(C.label, 'flex items-center gap-1') },
+      Ic(CalendarDays, 'size-3.5'), `Months (${visibleMonths.length})`,
+      h('button', { dataset: { fk: 'smo-all' }, class: cx(C.link, 'normal-case'), text: 'all', onclick: () => { view.hiddenMonths = []; persist(); emit(); } }),
+      h('button', { dataset: { fk: 'smo-none' }, class: cx(C.link, 'normal-case'), text: 'none', onclick: () => { view.hiddenMonths = [...allMonths]; persist(); emit(); } })),
+    h('div', { class: 'flex min-w-0 flex-col gap-1.5' },
+      ...yearGroups.map((g) => h('div', { class: 'flex items-start gap-1.5' },
+        h('button', {
+          dataset: { fk: `syear-${g.year}` },
+          class: 'w-9 shrink-0 cursor-pointer border-0 bg-transparent p-0 pt-1 text-left text-[11px] font-semibold tabular-nums text-muted-foreground transition-colors hover:text-foreground',
+          title: `select / deselect all of ${g.year}`,
+          text: g.year,
+          onclick: () => toggleYear(g.months),
+        }),
+        // the months are their own column: a wrapped row starts under the first
+        // chip instead of sliding left under the year label
+        h('div', { class: 'flex min-w-0 flex-1 flex-wrap items-center gap-1.5' }, ...g.months.map(chipFor))))));
   const dateField = field('Date range', CalendarRange, fromInput, '→', toInput,
     h('button', { class: C.link, text: 'clear', onclick: () => { fromInput.value = ''; toInput.value = ''; applyRange(); } }));
   dateField.classList.add('col-span-2');
@@ -280,80 +336,177 @@ export function renderSpending(container: HTMLElement): void {
   );
 
   // ---- matrix ----
-  // columns are resizable (drag the right edge of a header, double-click the handle
-  // for the automatic width); widths live in localStorage under banking.spendingColW
+  // Header and body are two stacked tables sharing the same <col> widths: the header
+  // box sticks at menu level while the body box owns the horizontal scroll (a single
+  // table inside an overflow wrapper would trap the sticky header in that wrapper).
+  // The header follows the body's scrollLeft. Category, Average and Total are the
+  // static columns — fixed width, no resize handle, Pin icon; clicking one of them
+  // toggles just that column between frozen at its table edge (blue pin) and
+  // scrolling free with the months.
+  // The month columns are resizable (drag the right edge of a header, double-click
+  // the handle for the automatic width — widths live in localStorage under
+  // banking.spendingColW) and grab-draggable for panning.
   const expanded = new Set<string>();
-  const table = h('table', { class: 'w-full border-collapse text-[13px]', style: { tableLayout: 'fixed' } });
-  const colgroup = h('colgroup');
-  table.appendChild(colgroup);
-  const colEntries: Array<{ key: string; def: number | null }> = [];
+  // border-separate (not collapse): with collapse, browsers drop a sticky cell's
+  // border once it detaches from the grid — the 2px header rule would vanish.
+  const mkTable = (): { table: HTMLElement; colgroup: HTMLElement } => {
+    const table = h('table', { class: 'border-separate border-spacing-0 text-[13px]', style: { tableLayout: 'fixed' } });
+    const colgroup = h('colgroup');
+    table.appendChild(colgroup);
+    return { table, colgroup };
+  };
+  const head = mkTable();
+  const body = mkTable();
+  const colEntries: Array<{ key: string; def: number; fixed: boolean }> = [];
 
-  /** never let the table collapse below what its fixed-width columns need */
-  const syncMinW = (): void => {
+  // ---- required column widths ----
+  // every number column gets at least the width of its widest cell, so a value is
+  // never clipped to "…". The table font is monospace (1 glyph = 1 advance), so one
+  // probe measures the advance and the rest is arithmetic; +24px covers the cell
+  // padding (2 × 10px) with a little slack.
+  const chW = (() => {
+    const probe = h('span', { style: { position: 'fixed', left: '-9999px', top: '0', whiteSpace: 'pre', fontSize: '13px' }, text: '0'.repeat(20) });
+    document.body.appendChild(probe);
+    const w = probe.getBoundingClientRect().width / 20;
+    probe.remove();
+    return w > 0 ? w : 7.8; // fallback ≈ ui-monospace at 13px
+  })();
+  const need = new Map<string, number>();
+  const noteW = (key: string, s: string): void => {
+    need.set(key, Math.max(need.get(key) ?? 0, Math.ceil(s.length * chW) + 24));
+  };
+  const ZERO: Agg = { debit: 0, credit: 0, count: 0 };
+  for (const node of flat) {
+    const mv = sub.get(node.tag) ?? new Map<Month, Agg>();
+    for (const mo of monthCols) noteW(mo, cellText(measureOf(mv.get(mo) ?? ZERO, measure), measure));
+    const t = measureOf(subtreeTotals(mv), measure);
+    noteW('total', cellText(t, measure));
+    noteW('avg', cellText(averageOf(t), measure));
+  }
+  // the three footer rows carry their own (measure-independent) numbers per column
+  for (const mo of monthCols) {
+    const a = footOf(mo);
+    noteW(mo, cellText(a.credit, 'income'));
+    noteW(mo, cellText(a.debit, 'expense'));
+    noteW(mo, cellText(netOf(a), 'net'));
+  }
+  noteW('total', cellText(footTot.credit, 'income'));
+  noteW('total', cellText(footTot.debit, 'expense'));
+  noteW('total', cellText(netOf(footTot), 'net'));
+  noteW('avg', cellText(averageOf(footTot.credit), 'income'));
+  noteW('avg', cellText(averageOf(footTot.debit), 'expense'));
+  noteW('avg', cellText(averageOf(netOf(footTot)), 'net'));
+  // the static number columns keep their 120px look but grow when a value needs more
+  const totW = Math.max(120, need.get('total') ?? 0);
+  const avgW = Math.max(120, need.get('avg') ?? 0);
+  /** effective width: the saved drag-resize width, but never below the column's
+   *  required minimum — that is what guarantees no "…" on numbers */
+  const effW = (key: string, def: number, fixed: boolean): number =>
+    fixed ? def : Math.max(spColW[key] ?? 0, def);
+
+  /** both tables must always occupy exactly the same width */
+  const syncTableW = (): void => {
     let px = 0;
-    for (const e of colEntries) {
-      const w = spColW[e.key] ?? e.def;
-      px += w ?? SP_MIN_W;
+    for (const e of colEntries) px += effW(e.key, e.def, e.fixed);
+    // definite px width + min-width:100% so the tables fill a wider row
+    for (const t of [head.table, body.table]) {
+      t.style.width = `${px}px`;
+      t.style.minWidth = '100%';
     }
-    table.style.minWidth = `${px}px`;
   };
 
-  /** register one <col> plus its resize handle */
-  const addCol = (key: string, th: HTMLElement, def: number | null): void => {
-    colEntries.push({ key, def });
-    const col = h('col');
-    const start = spColW[key] ?? def;
-    if (start) col.style.width = `${start}px`;
-    colgroup.appendChild(col);
+  /** register one column (a <col> in each table); fixed columns get no resize handle */
+  const addCol = (key: string, th: HTMLElement, def: number, fixed = false): void => {
+    colEntries.push({ key, def, fixed });
+    const start = effW(key, def, fixed);
+    const cols = [h('col'), h('col')];
+    for (const c of cols) c.style.width = `${start}px`;
+    head.colgroup.appendChild(cols[0]);
+    body.colgroup.appendChild(cols[1]);
+    if (fixed) return;
     th.appendChild(colResizeHandle({
-      width: () => {
-        const w = spColW[key] ?? def;
-        if (w) return w;
-        const measured = Math.round(th.getBoundingClientRect().width);
-        return measured > 0 ? measured : SP_MIN_W;
-      },
+      width: () => effW(key, def, false),
       apply: (px) => {
         if (px === 0) delete spColW[key];
         else spColW[key] = px;
-        const now = spColW[key] ?? def;
-        col.style.width = now ? `${now}px` : '';
-        syncMinW();
+        const now = effW(key, def, false);
+        for (const c of cols) c.style.width = `${now}px`;
+        syncTableW();
       },
       commit: () => saveSpColW(),
-      min: SP_MIN_W,
+      min: Math.max(SP_MIN_W, def), // dragging cannot reintroduce a clipped number
     }));
   };
 
-  const thead = h('thead');
+  /** the two boxes: the header sticks below the menu, the body scrolls horizontally */
+  const headBox = h('div', { class: cx(C.card, 'sticky top-[var(--appbar-h)] z-20 overflow-x-hidden border-b-0') }, head.table);
+  const bodyBox = h('div', { class: cx(C.card, 'overflow-x-auto border-t-0') }, body.table);
+  bodyBox.addEventListener('scroll', () => { headBox.scrollLeft = bodyBox.scrollLeft; }, { passive: true });
+
+  // grab-and-slide panning on the non-static content: dragging a month header or a
+  // month cell slides the table sideways (the resize handle stops the drag before
+  // it starts, static columns never begin one)
+  const isMonthCell = (t: HTMLElement): boolean => !!t.closest('[data-mo]');
+  attachDragPan(bodyBox, headBox, isMonthCell);
+  attachDragPan(bodyBox, bodyBox, isMonthCell);
+
+  // ---- static columns: each one pinned (frozen at a table edge) or free ----
+  // per-column auto default: on from the app's `wide` breakpoint up, off on tablet
+  // and below; clicking a static header stores an explicit choice for that column.
+  // One dependency: Average may only freeze while Total freezes too (it pins just
+  // left of it) — Average-on pulls Total on, Total-off drops Average off; the other
+  // two combinations (Total on + Average off, Average off + Total on) are allowed.
+  wirePinAutoResize();
+  type PinKey = 'cat' | 'avg' | 'total';
+  const pins = view.pinStatic ?? {};
+  const auto = autoPin();
+  const pinOf = (k: PinKey): boolean => pins[k] ?? auto;
+  const togglePin = (k: PinKey): void => {
+    const next: Partial<Record<PinKey, boolean>> = { ...pins, [k]: !pinOf(k) };
+    if (k === 'avg' && next.avg) next.total = true; // Average on → Total on too
+    if (k === 'total' && next.total === false) next.avg = false; // Total off → Average off
+    view.pinStatic = next;
+    persist(); emit();
+  };
+  const catPinned = pinOf('cat');
+  const totPinned = pinOf('total');
+  const avgPinned = pinOf('avg') && totPinned; // effective state, never violates the rule
+  const pinHint = (name: string, edge: string, on: boolean): string =>
+    on ? `${name} pinned to the ${edge} — click to unpin` : `${name} scrolls with the months — click to pin it to the ${edge}`;
+  // blue while pinned, muted while free
+  const staticIcon = (on: boolean): SVGSVGElement => Ic(Pin, cx('size-3.5 shrink-0', on ? 'text-primary' : 'text-muted-foreground'));
+
   const hrow = h('tr');
-  const catTh = h('th', { class: cx('sticky left-0 z-6 relative', C.th), text: 'Category' });
+  // static corner cell: pinned to the left edge, above the scrolling months
+  const catTh = h('th', { class: cx(C.th, 'cursor-pointer select-none', catPinned && 'sticky left-0 z-6'), title: pinHint('Category', 'left edge', catPinned), onclick: () => togglePin('cat') },
+    h('span', { class: 'inline-flex items-center gap-1.5' }, staticIcon(catPinned), 'Category'));
   hrow.appendChild(catTh);
-  addCol('cat', catTh, 260);
+  addCol('cat', catTh, 260, true);
   for (const mo of monthCols) {
-    const colCb = h('input', { dataset: { fk: `smocol-${mo}` }, attrs: { type: 'checkbox', checked: 'checked', title: 'hide this month' } }) as HTMLInputElement;
-    colCb.onchange = () => {
-      view.hiddenMonths = [...view.hiddenMonths, mo]; persist(); emit();
-    };
-    const th = h('th', { class: cx(C.th, 'relative text-right') },
-      h('div', { class: 'flex items-end justify-end gap-1.5' }, colCb, h('span', { text: monthLabel(mo) })));
+    // no per-column hide checkbox here — months are toggled in the toolbar above
+    const th = h('th', { class: cx(C.th, 'text-right cursor-grab select-none'), dataset: { mo }, text: monthLabel(mo) });
     hrow.appendChild(th);
-    addCol(mo, th, null);
+    addCol(mo, th, Math.max(SP_MIN_W, need.get(mo) ?? 0));
   }
-  // Average first, Total last — the total is the number you read at the end of a row
+  // Average first, Total last — each freezes at the right edge on its own; Average
+  // sits just left of Total by Total's actual (content-driven) width, and at the
+  // very edge when Total scrolls free
+  const avgFormula = `Total ÷ ${visibleMonths.length} selected month${visibleMonths.length === 1 ? '' : 's'} (months without spending count as 0)`;
   if (showAvg) {
     const avgTh = h('th', {
-      class: cx(C.th, C.num, 'relative'),
-      text: 'Average',
-      title: `Total ÷ ${visibleMonths.length} selected month${visibleMonths.length === 1 ? '' : 's'} (months without spending count as 0)`,
-    });
+      class: cx(C.th, C.num, 'cursor-pointer select-none', avgPinned && 'sm:sticky z-6'),
+      title: `${pinHint('Average', 'right edge', avgPinned)}${!avgPinned && !totPinned ? ' (pins Total too)' : ''} · ${avgFormula}`,
+      onclick: () => togglePin('avg'),
+    }, h('span', { class: 'inline-flex items-center gap-1.5' }, staticIcon(avgPinned), 'Average'));
+    if (avgPinned) avgTh.style.right = `${totW}px`;
     hrow.appendChild(avgTh);
-    addCol('avg', avgTh, 120);
+    addCol('avg', avgTh, avgW, true);
   }
-  const totTh = h('th', { class: cx(C.th, C.num, 'relative'), text: 'Total' });
+  const totTh = h('th', { class: cx(C.th, C.num, 'cursor-pointer select-none', totPinned && 'sm:sticky sm:right-0 z-6'), title: pinHint('Total', 'right edge', totPinned), onclick: () => togglePin('total') },
+    h('span', { class: 'inline-flex items-center gap-1.5' }, staticIcon(totPinned), 'Total'));
   hrow.appendChild(totTh);
-  addCol('total', totTh, 120);
-  thead.appendChild(hrow);
-  table.appendChild(thead);
+  addCol('total', totTh, totW, true);
+  head.table.appendChild(h('thead', {}, hrow));
 
   const tbody = h('tbody');
   for (const [ri, node] of flat.entries()) {
@@ -381,7 +534,10 @@ export function renderSpending(container: HTMLElement): void {
       ? h('span', { class: 'border border-warning/30 bg-warning/10 px-1.5 py-px text-[10px] text-warning', title: 'category date range', text: `${cat!.dateFrom ? dmy(cat!.dateFrom) : '…'}–${cat!.dateTo ? dmy(cat!.dateTo) : '…'}` })
       : null;
     const offBadge = !cat?.enabled && !isUncat ? h('span', { class: C.badgeMuted, text: 'disabled' }) : null;
-    const nameCell = h('td', { class: cx('sticky left-0 z-3 flex items-center gap-2 overflow-hidden border-b border-border px-2.5 py-2 whitespace-nowrap group-hover:bg-muted/40', stripe) },
+    // the hover tint must stay OPAQUE (pre-blended muted/40 over the card, the exact
+    // color the row itself composites to): a semi-transparent bg on this sticky cell
+    // would let the month values sliding underneath it show through the name column
+    const nameCell = h('td', { class: cx('flex items-center gap-2 overflow-hidden border-b border-border px-2.5 py-2 whitespace-nowrap group-hover:bg-[color-mix(in_srgb,var(--muted)_40%,var(--card))]', catPinned && 'sticky left-0 z-3', stripe) },
       toggle, cb, dot, nameLabel, badge, offBadge);
     nameCell.style.paddingLeft = `${10 + node.depth * 22}px`;
     tr.appendChild(nameCell);
@@ -390,14 +546,16 @@ export function renderSpending(container: HTMLElement): void {
     for (const mo of monthCols) {
       const a = monthVals.get(mo) ?? { debit: 0, credit: 0, count: 0 };
       const v = measureOf(a, measure);
-      tr.appendChild(h('td', { class: cx(C.td, C.num, SP_CELL, v < 0 && 'text-danger', a.count === 0 && 'text-muted-foreground/40'), text: cellText(v, measure) }));
+      tr.appendChild(h('td', { class: cx(C.td, C.num, SP_CELL, 'cursor-grab', v < 0 && 'text-danger', a.count === 0 && 'text-muted-foreground/40'), dataset: { mo }, text: cellText(v, measure) }));
     }
     const tot = measureOf(subtreeTotals(sub.get(tag)), measure);
     if (showAvg) {
       const avg = averageOf(tot);
-      tr.appendChild(h('td', { class: cx(C.td, C.num, SP_CELL, 'bg-subtle/40', avg < 0 && 'text-danger'), text: cellText(avg, measure) }));
+      const avgTd = h('td', { class: cx(C.td, C.num, SP_CELL, 'bg-subtle', avgPinned && 'sm:sticky z-3', avg < 0 && 'text-danger'), text: cellText(avg, measure) });
+      if (avgPinned) avgTd.style.right = `${totW}px`; // just left of the pinned Total
+      tr.appendChild(avgTd);
     }
-    tr.appendChild(h('td', { class: cx(C.td, C.num, SP_CELL, 'bg-subtle/60 font-semibold', tot < 0 && 'text-danger'), text: cellText(tot, measure) }));
+    tr.appendChild(h('td', { class: cx(C.td, C.num, SP_CELL, 'bg-subtle font-semibold', totPinned && 'sm:sticky sm:right-0 z-3', tot < 0 && 'text-danger'), text: cellText(tot, measure) }));
     tbody.appendChild(tr);
 
     // detail placeholder row (filled on demand)
@@ -412,24 +570,27 @@ export function renderSpending(container: HTMLElement): void {
   const footRow = (label: string, title: string, fmt: Measure, of: (a: Agg) => number): void => {
     const tr = h('tr', { class: 'bg-card font-semibold', title });
     tr.appendChild(h('td', {
-      class: cx('sticky left-0 z-3 flex items-center border-b border-border border-t-2 bg-subtle px-2.5 py-2 whitespace-nowrap', SP_CELL),
+      class: cx('flex items-center border-b border-border border-t-2 bg-subtle px-2.5 py-2 whitespace-nowrap', catPinned && 'sticky left-0 z-3', SP_CELL),
       text: label,
     }));
-    const numCell = (v: number, tint: string | false): void => {
-      tr.appendChild(h('td', { class: cx(C.td, C.num, SP_CELL, 'border-t-2', tint, v < 0 && 'text-danger'), text: cellText(v, fmt) }));
+    const numCell = (v: number, tint: string | false, mo?: Month, right?: number): void => {
+      const td = h('td', { class: cx(C.td, C.num, SP_CELL, 'border-t-2', tint, v < 0 && 'text-danger'), dataset: mo ? { mo } : undefined, text: cellText(v, fmt) });
+      if (right !== undefined) td.style.right = `${right}px`;
+      tr.appendChild(td);
     };
-    for (const mo of monthCols) numCell(of(footOf(mo)), false);
-    if (showAvg) numCell(averageOf(of(footTot)), 'bg-subtle/40');
-    numCell(of(footTot), 'bg-subtle/60');
+    for (const mo of monthCols) numCell(of(footOf(mo)), 'cursor-grab', mo);
+    if (showAvg) numCell(averageOf(of(footTot)), avgPinned ? 'sm:sticky z-3 bg-subtle' : 'bg-subtle', undefined, avgPinned ? totW : undefined);
+    numCell(of(footTot), totPinned ? 'sm:sticky sm:right-0 z-3 bg-subtle' : 'bg-subtle');
     tbody.appendChild(tr);
   };
   footRow('Total Income', 'sum of all income (credits) over the visible categories — not a category row', 'income', (a) => a.credit);
   footRow('Total Expenses', 'sum of all expenses (debits) over the visible categories — not a category row', 'expense', (a) => a.debit);
   footRow('Total Net', 'income − expenses over the visible categories — not a category row', 'net', netOf);
 
-  table.appendChild(tbody);
-  syncMinW();
-  container.appendChild(h('div', { class: C.scroll }, table));
+  body.table.appendChild(tbody);
+  syncTableW();
+  container.appendChild(headBox);
+  container.appendChild(bodyBox);
   attachCellSelect(tbody); // one click picks the cell's own text — no column marking here
 
   function toggleDetails(tag: string): void {
