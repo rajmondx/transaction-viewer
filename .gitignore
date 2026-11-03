@@ -1,0 +1,14 @@
+# dependencies / build output
+node_modules/
+dist/
+
+# tooling / editor / OS
+.openchamber/
+.idea/
+.vscode/
+*.log
+Thumbs.db
+.DS_Store
+
+# local bank-data fixtures for tests — still contains real IBANs/names, never commit
+example/

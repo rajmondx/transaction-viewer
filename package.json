@@ -1,0 +1,44 @@
+{
+  "name": "transaction-viewer",
+  "private": true,
+  "version": "0.3.0",
+  "description": "Fully static dashboard for bank statement CSVs: categorize transactions, explore spending per month, print reports. No server, no accounts — everything stays in your browser.",
+  "type": "module",
+  "license": "MIT",
+  "homepage": "https://rajmondx.github.io/transaction-viewer/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rajmondx/transaction-viewer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/rajmondx/transaction-viewer/issues"
+  },
+  "keywords": [
+    "banking",
+    "csv",
+    "personal-finance",
+    "spending",
+    "privacy",
+    "static-site",
+    "github-pages",
+    "pwa"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "lucide": "^1.66.0",
+    "tailwindcss": "^4.3.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.0",
+    "vitest": "^2.1.8"
+  }
+}

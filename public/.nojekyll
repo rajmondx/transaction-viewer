@@ -1,0 +1,2 @@
+# This file tells GitHub Pages not to run Jekyll over the built site, so
+# nothing is filtered out of dist/ (Vite already emits the final assets).

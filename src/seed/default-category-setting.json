@@ -1,0 +1,654 @@
+{
+  "name": "default",
+  "comment": "Starter category bundle. Every transaction is assigned to the FIRST category whose rules match, so the order below is the priority. Search tags are plain case-insensitive 'contains' matches against the booking text; keep the ones that appear on your own statements and delete the rest.",
+  "categories": [
+    {
+      "tag": "Income",
+      "color": "#3aa66b",
+      "iban": [],
+      "search_tag": [
+        "salary",
+        "payroll",
+        "wages",
+        "lohn",
+        "gehalt"
+      ]
+    },
+    {
+      "tag": "Employer Benefits",
+      "tag_father": "Income",
+      "color": "#5cc191",
+      "iban": [],
+      "search_tag": [
+        "bonus",
+        "provision",
+        "share plan",
+        "Spesen",
+        "expense claim"
+      ]
+    },
+    {
+      "tag": "Government Benefits",
+      "tag_father": "Income",
+      "color": "#7fd0a9",
+      "iban": [],
+      "search_tag": [
+        "unemployment",
+        "Arbeitslosenkasse",
+        "family allowance",
+        "Kindergeld",
+        "child benefit",
+        "Ausgleichskasse"
+      ]
+    },
+    {
+      "tag": "Interest & Dividends",
+      "tag_father": "Income",
+      "color": "#a6e0c4",
+      "iban": [],
+      "search_tag": [
+        "interest",
+        "dividend",
+        "Zins",
+        "Ertrag"
+      ]
+    },
+    {
+      "tag": "Housing",
+      "color": "#4f7df9",
+      "iban": [],
+      "search_tag": []
+    },
+    {
+      "tag": "Rent",
+      "tag_father": "Housing",
+      "color": "#719cfb",
+      "iban": [],
+      "search_tag": [
+        "rent",
+        "miete",
+        "mietzins",
+        "tenancy",
+        "building fund"
+      ]
+    },
+    {
+      "tag": "Utilities",
+      "tag_father": "Housing",
+      "color": "#8fb1fc",
+      "iban": [],
+      "search_tag": [
+        "electricity",
+        "strom",
+        "gas",
+        "water",
+        "heating",
+        "heizung",
+        "waste",
+        "Abfall",
+        "Nebenkosten"
+      ]
+    },
+    {
+      "tag": "Internet & Mobile",
+      "tag_father": "Housing",
+      "color": "#aec6fd",
+      "iban": [],
+      "search_tag": [
+        "swisscom",
+        "sunrise",
+        "salt",
+        "telekom",
+        "vodafone",
+        "o2",
+        "1&1",
+        "dsl",
+        "internet",
+        "mobile",
+        "handy"
+      ]
+    },
+    {
+      "tag": "Insurance",
+      "color": "#e5793a",
+      "iban": [],
+      "search_tag": []
+    },
+    {
+      "tag": "Health Insurance",
+      "tag_father": "Insurance",
+      "color": "#ef9660",
+      "iban": [],
+      "search_tag": [
+        "krankenkasse",
+        "health insurance",
+        "swica",
+        "visana",
+        "sanitas",
+        "css",
+        "aok",
+        "barmer",
+        "dak"
+      ]
+    },
+    {
+      "tag": "Property & Liability",
+      "tag_father": "Insurance",
+      "color": "#f5b184",
+      "iban": [],
+      "search_tag": [
+        "haftpflicht",
+        "gebäudeversicherung",
+        "Hausrat",
+        "insurance",
+        "Versicherung",
+        "helvetia",
+        "zurich insurance",
+        "axa",
+        "allianz",
+        "huk"
+      ]
+    },
+    {
+      "tag": "Groceries",
+      "color": "#b0549f",
+      "iban": [],
+      "search_tag": [
+        "migros",
+        "coop",
+        "denner",
+        "aldi",
+        "lidl",
+        "rewe",
+        "edeka",
+        "netto",
+        "penny",
+        "spar",
+        "hofer",
+        "volg",
+        "globus",
+        "kaufland",
+        "manor food"
+      ]
+    },
+    {
+      "tag": "Dining Out",
+      "color": "#8f4a80",
+      "iban": [],
+      "search_tag": [
+        "restaurant",
+        "cafe",
+        "coffee",
+        "starbucks",
+        "mcdonald",
+        "burger king",
+        "kfc",
+        "vapiano",
+        "pizza",
+        "take away",
+        "lieferando",
+        "just eat",
+        "foodora",
+        "bäckerei",
+        "brezel",
+        "glace",
+        "ice cream"
+      ]
+    },
+    {
+      "tag": "Shopping",
+      "color": "#d1495b",
+      "iban": [],
+      "search_tag": []
+    },
+    {
+      "tag": "Clothing & Shoes",
+      "tag_father": "Shopping",
+      "color": "#e06e7e",
+      "iban": [],
+      "search_tag": [
+        "zalando",
+        "about you",
+        "asos",
+        "boozt",
+        "h&m",
+        "c&a",
+        "kik",
+        "primark",
+        "uniqlo",
+        "deichmann",
+        "ritter",
+        "ovestel"
+      ]
+    },
+    {
+      "tag": "Electronics",
+      "tag_father": "Shopping",
+      "color": "#e98c98",
+      "iban": [],
+      "search_tag": [
+        "mediamarkt",
+        "saturn",
+        "fust",
+        "interdiscount",
+        "digitec",
+        "expert",
+        "apple store",
+        "boulanger"
+      ]
+    },
+    {
+      "tag": "Home & Garden",
+      "tag_father": "Shopping",
+      "color": "#f0aab3",
+      "iban": [],
+      "search_tag": [
+        "ikea",
+        "obi",
+        "hornbach",
+        "bauhaus",
+        "jumbo",
+        "toptyp",
+        "wayfair",
+        "habitat",
+        "gartencenter"
+      ]
+    },
+    {
+      "tag": "Drugstore & Beauty",
+      "tag_father": "Shopping",
+      "color": "#f5c2c9",
+      "iban": [],
+      "search_tag": [
+        "dm drogerie",
+        "dm-drogerie",
+        "rossmann",
+        "müller",
+        "douglas",
+        "tally weijl",
+        "drogerie",
+        "parfumerie"
+      ]
+    },
+    {
+      "tag": "Online Shopping",
+      "color": "#c4653a",
+      "iban": [],
+      "search_tag": []
+    },
+    {
+      "tag": "Marketplaces",
+      "tag_father": "Online Shopping",
+      "color": "#d98357",
+      "iban": [],
+      "search_tag": [
+        "amazon",
+        "amzn",
+        "ebay",
+        "aliexpress",
+        "temu",
+        "shein",
+        "etsy",
+        "vinted",
+        "depop",
+        "ricardo",
+        "tutti",
+        "rebuy"
+      ]
+    },
+    {
+      "tag": "Online Retailers",
+      "tag_father": "Online Shopping",
+      "color": "#e5a077",
+      "iban": [],
+      "search_tag": [
+        "galaxus",
+        "brack.ch",
+        "siroop",
+        "otto",
+        "kaufland.de",
+        "lascana",
+        "melectronic",
+        "notebooksbilliger"
+      ]
+    },
+    {
+      "tag": "Subscriptions",
+      "color": "#5c7fed",
+      "iban": [],
+      "search_tag": [
+        "netflix",
+        "spotify",
+        "disney",
+        "youtube premium",
+        "icloud",
+        "google one",
+        "chatgpt",
+        "openai",
+        "claude",
+        "anthropic",
+        "github",
+        "jetbrains",
+        "adobe",
+        "patreon",
+        "sky",
+        "vimeo",
+        "subscription",
+        "abo"
+      ]
+    },
+    {
+      "tag": "Gaming",
+      "tag_father": "Subscriptions",
+      "color": "#86a0f3",
+      "iban": [],
+      "search_tag": [
+        "steam",
+        "epic games",
+        "battle.net",
+        "playstation",
+        "xbox",
+        "nintendo",
+        "ea app",
+        "ubisoft",
+        "faceit"
+      ]
+    },
+    {
+      "tag": "Mobility",
+      "color": "#2a9d8f",
+      "iban": [],
+      "search_tag": []
+    },
+    {
+      "tag": "Public Transport",
+      "tag_father": "Mobility",
+      "color": "#51b8ab",
+      "iban": [],
+      "search_tag": [
+        "sbb",
+        "cff",
+        "db",
+        "bahn",
+        "train",
+        "zvv",
+        "postauto",
+        "tram",
+        "bus",
+        "ticket",
+        "vvs",
+        "hvz",
+        "abonnement",
+        "libero"
+      ]
+    },
+    {
+      "tag": "Car & Fuel",
+      "tag_father": "Mobility",
+      "color": "#7ecdc2",
+      "iban": [],
+      "search_tag": [
+        "tanken",
+        "tankstelle",
+        "shell",
+        "agrola",
+        "tamoil",
+        "migrol",
+        "fuel",
+        "gasoline",
+        "petrol",
+        "charging station",
+        "parkplatz",
+        "parking",
+        "tcs",
+        "adac",
+        "mfk",
+        "vignette",
+        "garage",
+        "reifen",
+        "tyre",
+        "waschanlage"
+      ]
+    },
+    {
+      "tag": "Travel",
+      "color": "#e9c46a",
+      "iban": [],
+      "search_tag": [
+        "hotel",
+        "airbnb",
+        "booking.com",
+        "flight",
+        "airport",
+        "reise",
+        "travel",
+        "skipass",
+        "cruise",
+        "währung",
+        "currency",
+        "exchange rate"
+      ]
+    },
+    {
+      "tag": "Health",
+      "color": "#9b2226",
+      "iban": [],
+      "search_tag": []
+    },
+    {
+      "tag": "Pharmacy",
+      "tag_father": "Health",
+      "color": "#c1454b",
+      "iban": [],
+      "search_tag": [
+        "apotheke",
+        "pharmacy",
+        "amavita",
+        "gelena",
+        "drogerie",
+        "rezept",
+        "medikament"
+      ]
+    },
+    {
+      "tag": "Doctor & Hospital",
+      "tag_father": "Health",
+      "color": "#d76e74",
+      "iban": [],
+      "search_tag": [
+        "arzt",
+        "doctor",
+        "spital",
+        "hospital",
+        "klinik",
+        "clinic",
+        "therapie",
+        "physio",
+        "optiker",
+        "eye care"
+      ]
+    },
+    {
+      "tag": "Dentist",
+      "tag_father": "Health",
+      "color": "#e79a9f",
+      "iban": [],
+      "search_tag": [
+        "zahnarzt",
+        "dentist",
+        "zahnkontrolle",
+        "dental"
+      ]
+    },
+    {
+      "tag": "Fitness & Leisure",
+      "color": "#007f5f",
+      "iban": [],
+      "search_tag": [
+        "fitness",
+        "gym",
+        "movida",
+        "hallenbad",
+        "pool",
+        "cinema",
+        "kino",
+        "museum",
+        "zoo",
+        "theater",
+        "decathlon",
+        "intersport",
+        "sport",
+        "konzert",
+        "eventim"
+      ]
+    },
+    {
+      "tag": "Kids & Family",
+      "color": "#6a4c93",
+      "iban": [],
+      "search_tag": [
+        "kindergarten",
+        "krippe",
+        "daycare",
+        "schule",
+        "school",
+        "baby",
+        "windeln",
+        "diapers",
+        "hust & claire",
+        "pippi",
+        "ochsner",
+        "spielzeug",
+        "toy",
+        "lego"
+      ]
+    },
+    {
+      "tag": "Pets",
+      "color": "#1d7874",
+      "iban": [],
+      "search_tag": [
+        "tierarzt",
+        "tierklinik",
+        "veterinär",
+        "zooplus",
+        "fressnapf",
+        "jokr",
+        "tierhandlung",
+        "haustier",
+        "pet",
+        "futter"
+      ]
+    },
+    {
+      "tag": "Education",
+      "color": "#0a9396",
+      "iban": [],
+      "search_tag": [
+        "buch",
+        "book",
+        "course",
+        "udemy",
+        "coursera",
+        "seminar",
+        "schulung",
+        "university",
+        "lexware",
+        "skript"
+      ]
+    },
+    {
+      "tag": "Gifts & Donations",
+      "color": "#5f0f40",
+      "iban": [],
+      "search_tag": [
+        "spende",
+        "donation",
+        "charity",
+        "gift",
+        "geschenk",
+        "blumen",
+        "flower",
+        "collection"
+      ]
+    },
+    {
+      "tag": "Taxes & Authorities",
+      "color": "#8a8f98",
+      "iban": [],
+      "search_tag": [
+        "steuern",
+        "tax",
+        "finanzamt",
+        "estv",
+        "betreibungsamt",
+        "gemeinde",
+        "stadtverwaltung",
+        "zivilstandsamt",
+        "grundbuch",
+        "gericht",
+        "busse",
+        "fine"
+      ]
+    },
+    {
+      "tag": "Bank Fees",
+      "color": "#2a9d8f",
+      "iban": [],
+      "search_tag": [
+        "gebür",
+        "spesen",
+        "fee",
+        "kontoführung",
+        "account fee",
+        "depot",
+        "porto",
+        "card fee"
+      ]
+    },
+    {
+      "tag": "Cash & Transfers",
+      "color": "#4f7df9",
+      "iban": [],
+      "search_tag": []
+    },
+    {
+      "tag": "Cash Withdrawals",
+      "tag_father": "Cash & Transfers",
+      "color": "#7fa4fb",
+      "iban": [],
+      "search_tag": [
+        "bancomat",
+        "atm",
+        "bargeld",
+        "cash",
+        "auszahlung",
+        "withdrawal"
+      ]
+    },
+    {
+      "tag": "TWINT",
+      "tag_father": "Cash & Transfers",
+      "color": "#9db9fc",
+      "iban": [],
+      "search_tag": [
+        "twint"
+      ]
+    },
+    {
+      "tag": "Own Accounts",
+      "tag_father": "Cash & Transfers",
+      "color": "#bcd0fd",
+      "iban": [],
+      "search_tag": [
+        "übertrag",
+        "transfer",
+        "savings",
+        "sparkonto",
+        "pillar",
+        "3a",
+        "intern"
+      ]
+    }
+  ]
+}

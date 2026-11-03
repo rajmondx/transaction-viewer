@@ -1,0 +1,24 @@
+Buchungsdatum,Valutadatum,Auftragsnummer,Konto,Kontoalias,IBAN,Buchungstext,Gutschrift,Belastung
+01.10.2026,01.10.2026,ZV20261001/728093,Alltagskonto,Alltagskonto,CH12 3456 7890 1234 1000 2,"Belast. E-Banking Hans Peter
+Hans Peter
+Strasse 66
+1000 Zurich
+Zahlungszweck: Miete Oktober 2026",,"CHF -1,600.00"
+30.09.2026,30.09.2026,ZV20260930/688747,Alltagskonto,Alltagskonto,CH12 3456 7890 1234 1000 2,"Gutschrift Arbeitergeber
+Arbeitergeber
+Strasse 12
+1000 Zurich
+Zahlungszweck: Gem. Abrechnung vom30.09.2026/502408267/901425920/","CHF 6,361.75",
+30.09.2026,28.09.2026,ZV20260930/671347,Alltagskonto,Alltagskonto,CH12 3456 7890 1234 1000 2,Einkauf Debitkarte 28.09.2026 17:44 Migros M Cityname Kartennummer: 123456******7890,,CHF -12.60
+13.08.2026,13.08.2026,ZV20260813/139925,Alltagskonto,Alltagskonto,CH62 0839 0039 7668 1010 0,"Gutschrift 397.668.100-02
+AAAA","CHF 4,600.00",
+13.08.2026,13.08.2026,ZV20260813/139925,Alltagskonto,Alltagskonto,CH12 3456 7890 1234 1000 2,"Belast. E-Banking AAAAA
+AAA
+Strasse 66
+1000 Zurich",,"CHF -4,600.00"
+16.06.2026,16.06.2026,ZV20260615/241482,Alltagskonto,Alltagskonto,CH12 3456 7890 1234 1000 2,"Belast. E-Banking Elektrizitat
+Elektrizitat
+Muhlenstrasse 19
+8201 Zurich
+Referenznummer: 10000000000000000000001
+Zahlungszweck: 1. Rate, Strasse 66, 1000 SH",,CHF -500.00

@@ -1,0 +1,119 @@
+@import 'tailwindcss';
+
+/* class-based dark mode (html.dark), persisted in localStorage */
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  color-scheme: light;
+  --background: #f4f6f9;
+  --card: #ffffff;
+  --subtle: #f7f9fb;
+  --zebra: #eef3fa;
+  --foreground: #17202b;
+  --muted: #eef1f5;
+  --muted-foreground: #68737f;
+  --border: #e3e8ee;
+  --input: #c9d2dc;
+  --primary: #2f6fed;
+  --primary-foreground: #ffffff;
+  --accent-soft: #e8efff;
+  --success: #178a4c;
+  --danger: #c2334d;
+  --warning: #b45309;
+}
+
+.dark {
+  color-scheme: dark;
+  --background: #0e1319;
+  --card: #161d26;
+  --subtle: #1a222d;
+  --zebra: #202b3a;
+  --foreground: #e7edf4;
+  --muted: #1f2833;
+  --muted-foreground: #97a3b1;
+  --border: #2a3441;
+  --input: #47556a;
+  --primary: #5b8cf2;
+  --primary-foreground: #ffffff;
+  --accent-soft: #21314d;
+  --success: #45c08a;
+  --danger: #f0617c;
+  --warning: #e0a45e;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-card: var(--card);
+  --color-subtle: var(--subtle);
+  --color-zebra: var(--zebra);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent-soft: var(--accent-soft);
+  --color-success: var(--success);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
+  --font-mono: ui-monospace, 'Cascadia Mono', 'Consolas', monospace;
+  /* extra breakpoint: side-by-side layouts only above 1040px — tablets
+     (portrait iPad ~810px, landscape ~1024px) and 1040px-and-below windows
+     get the stacked version */
+  --breakpoint-wide: 1041px;
+  /* monospace everywhere: font-sans resolves to the mono stack */
+  --font-sans: var(--font-mono);
+  /* straight corners everywhere — the radius scale is zeroed on purpose,
+     so a rounded-* utility added later still renders square */
+  --radius-none: 0;
+  --radius-xs: 0;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
+  --radius-2xl: 0;
+  --radius-3xl: 0;
+  --radius-4xl: 0;
+  --radius-card: 0;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.06), 0 4px 14px rgb(0 0 0 / 0.05);
+}
+
+@layer base {
+  body {
+    @apply bg-background text-foreground font-sans text-sm leading-[1.45];
+  }
+}
+
+/* tree-jump highlight (class toggled from JS) */
+.flash-card {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  transition: outline-color 0.3s;
+}
+
+/* column marked for copying on the CSV page (click a cell, see csv.ts) */
+td.col-sel {
+  background: var(--accent-soft);
+}
+
+/* the tab content is rebuilt on every change; without this the browser's scroll
+   anchoring picks a node inside it as its anchor and moves the page when that
+   node is replaced (it showed up as a jump when a Spending checkbox was clicked) */
+#content {
+  overflow-anchor: none;
+}
+
+/* toast: centered by transform (JS drags it with the same property), swipe-away and fade */
+#toast {
+  transform: translateX(-50%);
+  transition: transform 0.2s ease-out, opacity 0.22s ease-out;
+  touch-action: none; /* horizontal swipe must not scroll the page */
+  cursor: grab;
+  user-select: none;
+}
+
+#toast.toast-drag {
+  transition: none;
+  cursor: grabbing;
+}

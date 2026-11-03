@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Free, fully static dashboard for bank statement CSVs: categorize transactions, see spending per month, print clean reports. No server, no account — your data never leaves your browser."
+    />
+    <meta name="author" content="Rajmond Xhaferi" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Transaction Viewer" />
+    <meta
+      property="og:description"
+      content="Categorize bank statement CSVs, explore spending per month and print reports — entirely in your browser."
+    />
+    <meta property="og:url" content="https://rajmondx.github.io/transaction-viewer/" />
+    <meta property="og:image" content="https://rajmondx.github.io/transaction-viewer/android-chrome-512x512.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="./favicon.ico" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <meta name="theme-color" content="#2f6fed" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Transaction Viewer" />
+    <title>Transaction Viewer</title>
+    <script>
+      // apply saved/system theme before first paint to avoid a flash
+      (function () {
+        try {
+          var s = localStorage.getItem("banking.theme");
+          if (
+            s === "dark" ||
+            (!s && window.matchMedia("(prefers-color-scheme: dark)").matches)
+          ) {
+            document.documentElement.classList.add("dark");
+          }
+        } catch (e) {
+          /* ignore */
+        }
+      })();
+    </script>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body class="bg-background text-foreground">
+    <header
+      id="app-header"
+      class="sticky top-0 z-30 flex items-center gap-2 border-b border-border bg-card/95 px-1 py-2 backdrop-blur lg:px-2"
+    >
+      <div class="flex min-w-0 shrink-0 items-center gap-2.5 sm:gap-3">
+        <!--<span id="brand-icon" class="grid size-[32px] shrink-0 place-items-center bg-primary text-primary-foreground"></span>-->
+        <div class="hidden min-w-0 sm:block">
+          <h1 class="truncate text-[16px] font-semibold leading-tight">
+            Transaction Viewer
+          </h1>
+        </div>
+      </div>
+      <div class="flex min-w-0 flex-1 justify-center">
+        <nav
+          id="tabs"
+          class="hidden gap-1 border border-border bg-muted p-1 select-none md:flex"
+          role="tablist"
+          aria-label="Views"
+        >
+          <button
+            data-tab="spending"
+            role="tab"
+            class="flex cursor-pointer items-center gap-1.5 border-0 bg-transparent px-3 py-1.5 text-[13px] text-muted-foreground transition-colors select-none outline-none hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary data-[active=true]:bg-card data-[active=true]:font-semibold data-[active=true]:text-foreground data-[active=true]:shadow-[0_1px_3px_rgb(0_0_0/0.14)]"
+          >
+            Spending
+          </button>
+          <button
+            data-tab="csv"
+            role="tab"
+            class="flex cursor-pointer items-center gap-1.5 border-0 bg-transparent px-3 py-1.5 text-[13px] text-muted-foreground transition-colors select-none outline-none hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary data-[active=true]:bg-card data-[active=true]:font-semibold data-[active=true]:text-foreground data-[active=true]:shadow-[0_1px_3px_rgb(0_0_0/0.14)]"
+          >
+            CSV
+          </button>
+          <button
+            data-tab="settings"
+            role="tab"
+            class="flex cursor-pointer items-center gap-1.5 border-0 bg-transparent px-3 py-1.5 text-[13px] text-muted-foreground transition-colors select-none outline-none hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary data-[active=true]:bg-card data-[active=true]:font-semibold data-[active=true]:text-foreground data-[active=true]:shadow-[0_1px_3px_rgb(0_0_0/0.14)]"
+          >
+            Categories
+          </button>
+          <button
+            data-tab="help"
+            role="tab"
+            class="flex cursor-pointer items-center gap-1.5 border-0 bg-transparent px-3 py-1.5 text-[13px] text-muted-foreground transition-colors select-none outline-none hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary data-[active=true]:bg-card data-[active=true]:font-semibold data-[active=true]:text-foreground data-[active=true]:shadow-[0_1px_3px_rgb(0_0_0/0.14)]"
+          >
+            Help
+          </button>
+        </nav>
+      </div>
+      <div class="flex shrink-0 items-center gap-2">
+        <input
+          type="file"
+          id="csv-file-input"
+          accept=".csv,text/csv"
+          multiple
+          class="hidden"
+        />
+        <button
+          id="print-btn"
+          title="Print the current page"
+          aria-label="Print"
+          class="grid size-9 cursor-pointer place-items-center border border-border bg-card text-foreground transition-colors hover:border-input disabled:cursor-not-allowed disabled:opacity-40"
+        ></button>
+        <button
+          id="theme-btn"
+          title="Toggle light / dark theme"
+          aria-label="Toggle theme"
+          class="grid size-9 cursor-pointer place-items-center border border-border bg-card text-foreground transition-colors hover:border-input"
+        ></button>
+        <button
+          id="upload-btn"
+          title="Add CSV"
+          aria-label="Add CSV"
+          class="inline-flex cursor-pointer items-center gap-1.5 border border-primary bg-primary px-2.5 py-1.5 text-[13px] text-primary-foreground transition-colors hover:bg-primary/85"
+        >
+          <span class="hidden sm:inline">Add CSV</span>
+        </button>
+        <div class="relative md:hidden">
+          <button
+            id="menu-btn"
+            title="Menu"
+            aria-label="Open navigation menu"
+            aria-expanded="false"
+            class="grid size-9 cursor-pointer place-items-center border border-border bg-card text-foreground transition-colors hover:border-input"
+          ></button>
+          <div
+            id="mobile-menu"
+            class="absolute top-full right-0 z-40 mt-2 hidden w-[200px] border border-border bg-card p-1.5 shadow-card"
+            role="menu"
+            aria-label="Views"
+          >
+            <button
+              data-tab="spending"
+              role="menuitem"
+              class="flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent px-2.5 py-2 text-left text-[13px] text-foreground transition-colors select-none outline-none hover:bg-muted/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary data-[active=true]:bg-accent-soft data-[active=true]:font-semibold data-[active=true]:text-primary"
+            >
+              Spending
+            </button>
+            <button
+              data-tab="csv"
+              role="menuitem"
+              class="flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent px-2.5 py-2 text-left text-[13px] text-foreground transition-colors select-none outline-none hover:bg-muted/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary data-[active=true]:bg-accent-soft data-[active=true]:font-semibold data-[active=true]:text-primary"
+            >
+              CSV
+            </button>
+            <button
+              data-tab="settings"
+              role="menuitem"
+              class="flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent px-2.5 py-2 text-left text-[13px] text-foreground transition-colors select-none outline-none hover:bg-muted/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary data-[active=true]:bg-accent-soft data-[active=true]:font-semibold data-[active=true]:text-primary"
+            >
+              Categories
+            </button>
+            <button
+              data-tab="help"
+              role="menuitem"
+              class="flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent px-2.5 py-2 text-left text-[13px] text-foreground transition-colors select-none outline-none hover:bg-muted/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary data-[active=true]:bg-accent-soft data-[active=true]:font-semibold data-[active=true]:text-primary"
+            >
+              Help
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+    <main id="content" class="px-px pt-4 pb-2 lg:px-2"></main>
+    <footer id="app-footer" class="px-px pb-8 pt-2 lg:px-2"></footer>
+    <!-- shown while dragging files anywhere on the page (display toggled in main.ts) -->
+    <div
+      id="drop-overlay"
+      class="fixed inset-0 z-[100] hidden place-items-center bg-primary/15 backdrop-blur-sm"
+    >
+      <div
+        class="flex flex-col items-center gap-3 border-2 border-dashed border-primary bg-card px-16 py-10 text-lg font-semibold text-primary"
+      >
+        Drop CSV file(s) to import
+        <span class="text-[13px] font-normal text-muted-foreground"
+          >or a settings / mapper JSON — the type is detected</span
+        >
+      </div>
+    </div>
+    <div id="toast" class="fixed bottom-4 left-1/2 z-[120] hidden"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
