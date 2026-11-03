@@ -1,6 +1,5 @@
-# dependencies / build output
+# dependencies
 node_modules/
-dist/
 
 # tooling / editor / OS
 .openchamber/
