@@ -11,6 +11,7 @@ import { attachCellSelect, clearColumnSelect } from '../cellSelect';
 import { attachDragPan } from '../dragScroll';
 import { colResizeHandle } from '../colResize';
 import { Ic } from '../icons';
+import { downloadCsv, exportAmount, fileStamp, setTabExportHandler } from '../exportCsv';
 import { buildCsvPrintDoc, fontControls, mergedAmountCell, mergedDateCell, mergedDescCell, mergedNetTotal, openPrintModal, printCheck, printDateInput, printHtml, printRadio, savePrintStyle, setTabPrintHandler, type CsvPrintColumn } from '../print';
 
 type SortKey = 'date' | 'amount' | 'text';
@@ -487,8 +488,10 @@ export function renderCsvTab(container: HTMLElement): void {
   // like the category chips keep their own behavior)
   attachDragPan(bodyBox);
   attachDragPan(bodyBox, headBox);
-  container.appendChild(headBox);
-  container.appendChild(bodyBox);
+  // both boxes share one plain wrapper: the sticky header releases exactly at the
+  // bottom of the table (its containing block), not only when the tab content ends
+  const tableWrap = h('div', {}, headBox, bodyBox);
+  container.appendChild(tableWrap);
 
   // ---- rows per page + pager ----
   const sizeSel = h('select', {
@@ -531,6 +534,62 @@ export function renderCsvTab(container: HTMLElement): void {
       ),
     ),
   ));
+
+  /** the CSV table as CSV: the columns exactly as displayed (one signed Amount
+   *  column while merged), every filtered row in the current sort order — or just
+   *  the current page when the dialog says so. Amounts are plain signed numbers,
+   *  dates as displayed (dd.mm.yyyy). */
+  function exportCsvTable(pageOnly: boolean): void {
+    const source = pageOnly ? pageRows : filtered;
+    const cell = (c: ColDef, t: Tx): string => {
+      switch (c.key) {
+        case 'date': return dmy(t.bookingDate);
+        case 'value': return dmy(t.valueDate);
+        case 'ref': return t.ref;
+        case 'text': return t.text;
+        case 'cat': return categoryOf(t);
+        case 'credit': return t.credit > 0 ? exportAmount(t.credit) : '';
+        case 'debit': return t.debit > 0 ? exportAmount(-t.debit) : '';
+        case 'amount': return t.credit > 0 ? exportAmount(t.credit) : t.debit > 0 ? exportAmount(-t.debit) : '';
+      }
+    };
+    const rows: string[][] = [shown.map((c) => c.label)];
+    for (const t of source) rows.push(shown.map((c) => cell(c, t)));
+    downloadCsv(`transactions-${fileStamp()}.csv`, rows);
+    toast(`Exported ${num0(source.length)} transactions`);
+  }
+
+  /** The dialog the header export button opens: spells out exactly what the file
+   *  would contain — row scope, order, columns and active filters — so nothing is
+   *  downloaded unseen; 'Download CSV' confirms. */
+  function openExportDialog(): void {
+    if (filtered.length === 0) {
+      toast('Nothing to export — no transactions match the filter', 'err');
+      return;
+    }
+    const scopeAll = printRadio(`All filtered rows (${num0(filtered.length)})`, 'csv-export-scope', true, 'every row matching the current filters, not just this page');
+    const scopePage = printRadio(`Current page only (${num0(pageRows.length)})`, 'csv-export-scope', false, 'just the rows of the page you are looking at');
+    const sortLabel = ui.sortKey === 'date' ? `Booking date — ${ui.sortDir === 1 ? 'oldest' : 'newest'} first`
+      : ui.sortKey === 'amount' ? `Amount — ${ui.sortDir === 1 ? 'smallest' : 'largest'} first`
+      : `Description — ${ui.sortDir === 1 ? 'A → Z' : 'Z → A'}`;
+    // only lines about filters that are actually active (the print dialog lists the same)
+    const filterLines = [
+      f.text ? `Search: “${f.text}”${f.caseSensitive ? ' · case-sensitive' : ''}${f.fuzzy ? ' · fuzzy' : ''}` : null,
+      f.minAmount || f.maxAmount ? `Amount: ${f.minAmount || '0'} – ${f.maxAmount || 'open'}` : null,
+      f.dateFrom || f.dateTo ? `Date range: ${f.dateFrom ? dmy(f.dateFrom) : '…'} → ${f.dateTo ? dmy(f.dateTo) : '…'}` : null,
+      f.direction !== 'all' ? `Direction: ${f.direction}` : null,
+      f.selectedCats.length > 0 ? `Categories: ${f.selectedCats.join(', ')}` : null,
+    ].filter((s): s is string => s !== null);
+    const pill = (t: string): HTMLElement => h('span', { class: 'border border-border bg-subtle px-2 py-0.5 text-xs', text: t });
+    const controls = h('div', { class: 'flex flex-col gap-2.5' },
+      field('Rows', ListFilter, scopeAll.el, scopePage.el),
+      field('Order', ArrowUpDown, pill(sortLabel)),
+      field('Columns', FileSpreadsheet, ...shown.map((c) => pill(c.label))),
+      filterLines.length > 0 ? field('Active filters', Search, ...filterLines.map(pill)) : null,
+      h('p', { class: cx(C.muted, 'text-[12.5px]') },
+        'One line per row, comma-separated; amounts as plain signed numbers (1234.50 / -1234.50), dates dd.mm.yyyy, UTF-8 with BOM so Excel opens it cleanly.'));
+    openPrintModal('Export transaction table as CSV', controls, () => exportCsvTable(scopePage.rb.checked), 'Download CSV');
+  }
 
   function openPrintDialog(): void {
     if (filtered.length === 0) {
@@ -684,8 +743,9 @@ export function renderCsvTab(container: HTMLElement): void {
     });
   }
 
-  // the header print button opens this dialog while this tab is active
+  // the header print/export buttons open these dialogs while this tab is active
   setTabPrintHandler(() => openPrintDialog());
+  setTabExportHandler(() => openExportDialog());
 
   function refresh(): void {
     emit();

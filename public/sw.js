@@ -2,7 +2,7 @@
  * falling back to the cache so an installed/opened app keeps working offline.
  * The app itself is fully local (IndexedDB + localStorage) — this only caches
  * the static shell (html/js/css/icons). */
-const CACHE = 'tx-viewer-v1';
+const CACHE = 'tx-viewer-v2';
 
 self.addEventListener('install', () => {
   self.skipWaiting();

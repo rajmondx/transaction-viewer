@@ -18,9 +18,20 @@ export interface Series {
  * the card (between 64 and 190 px per month): a couple of months do not sprawl over the
  * whole card, many months scroll horizontally instead of squeezing their labels together
  * — and can be dragged sideways to scroll (see dragScroll.ts).
+ *
+ * `opts.onMonthClick` makes every month column a click target (the Spending page opens
+ * its single-month detail from it). The column-wide hit rect sits *below* the segments,
+ * so the per-segment tooltips keep working; clicking a segment or the label does the
+ * same as clicking the column.
  * Returns an HTMLElement.
  */
-export function stackedBars(months: string[], series: Series[], height = 260): HTMLElement {
+export function stackedBars(
+  months: string[],
+  series: Series[],
+  height = 260,
+  opts: { onMonthClick?: (index: number) => void } = {},
+): HTMLElement {
+  const clickable = !!opts.onMonthClick;
   const NS = 'http://www.w3.org/2000/svg';
   const MIN_SLOT = 64; // px per month — enough for "Oct 2026" plus the total
   const MAX_SLOT = 190; // px per month — the chart does not thin out over few months
@@ -76,6 +87,20 @@ export function stackedBars(months: string[], series: Series[], height = 260): H
     }
 
     for (let mi = 0; mi < months.length; mi++) {
+      // full-column click target under the segments (see the .month-hit rule in styles.css)
+      if (clickable) {
+        const hit = document.createElementNS(NS, 'rect');
+        hit.setAttribute('x', String(padL + mi * barW));
+        hit.setAttribute('y', '8');
+        hit.setAttribute('width', String(barW));
+        hit.setAttribute('height', String(height - 8));
+        hit.setAttribute('class', 'month-hit');
+        const ht = document.createElementNS(NS, 'title');
+        ht.textContent = `${months[mi]} — click for month detail`;
+        hit.appendChild(ht);
+        hit.onclick = () => opts.onMonthClick?.(mi);
+        svg.appendChild(hit);
+      }
       let up = zeroY; // current top edge of the positive stack
       let down = zeroY; // current bottom edge of the negative stack
       for (const s of series) {
@@ -96,6 +121,10 @@ export function stackedBars(months: string[], series: Series[], height = 260): H
         rect.setAttribute('width', String(bw));
         rect.setAttribute('height', String(hh));
         rect.setAttribute('fill', s.color);
+        if (clickable) {
+          rect.setAttribute('class', 'cursor-pointer');
+          rect.onclick = () => opts.onMonthClick?.(mi);
+        }
         const t = document.createElementNS(NS, 'title');
         t.textContent = `${s.name} — ${months[mi]}: CHF ${num2(v)}`;
         rect.appendChild(t);
@@ -106,7 +135,8 @@ export function stackedBars(months: string[], series: Series[], height = 260): H
       label.setAttribute('x', centerX);
       label.setAttribute('y', String(height - 8));
       label.setAttribute('text-anchor', 'middle');
-      label.setAttribute('class', 'fill-muted-foreground text-[10px]');
+      label.setAttribute('class', clickable ? 'fill-muted-foreground text-[10px] cursor-pointer' : 'fill-muted-foreground text-[10px]');
+      if (clickable) label.onclick = () => opts.onMonthClick?.(mi);
       label.textContent = months[mi]; // already formatted by the caller (e.g. 'Oct 2026')
       svg.appendChild(label);
       if (totals[mi] !== 0) {
@@ -159,12 +189,15 @@ export function stackedBars(months: string[], series: Series[], height = 260): H
   return wrap;
 }
 
-/** One row of the share chart. `depth: 1` marks a sub-category of the row above it. */
+/** One row of the share chart. `depth: 1` marks a sub-category of the row above it.
+ *  `note` fills an extra right-aligned detail column (only rendered when any row
+ *  carries one) — the Spending month view uses it for the transaction count. */
 export interface ShareItem {
   name: string;
   color: string;
   value: number;
   depth?: number;
+  note?: string;
 }
 
 /**
@@ -208,6 +241,9 @@ export function shareBars(
   interface Row { row: HTMLElement; name: HTMLElement; track: HTMLElement; label: HTMLElement; pct: number; color: string; depth: number }
   const rows: Row[] = [];
   let group: HTMLElement | null = null;
+  // the detail column only appears when at least one row carries a note
+  const hasNote = items.some((it) => (it.note ?? '') !== '');
+  const NOTE_COL = 64; // px
 
   for (const it of items) {
     if (Math.abs(it.value) === 0) continue;
@@ -254,12 +290,19 @@ export function shareBars(
     // including the sub-category rows inside a group
     row.className = 'grid items-center gap-2 text-xs ' + (rows.length % 2 === 1 ? 'bg-zebra' : 'bg-card');
     // start mobile-style (name inside the bar); apply() switches once the size is known
-    row.style.gridTemplateColumns = '1fr 48px 92px';
+    row.style.gridTemplateColumns = hasNote ? `1fr 48px 92px ${NOTE_COL}px` : '1fr 48px 92px';
     name.style.display = 'none';
     row.appendChild(name);
     row.appendChild(track);
     row.appendChild(pctEl);
     row.appendChild(valEl);
+    if (hasNote) {
+      const noteEl = document.createElement('span');
+      noteEl.className = 'truncate text-right text-[11px] text-muted-foreground tabular-nums';
+      noteEl.textContent = it.note ?? '';
+      noteEl.title = it.note ?? '';
+      row.appendChild(noteEl);
+    }
     group.appendChild(row);
     rows.push({ row, name, track, label, pct, color: it.color, depth });
   }
@@ -278,7 +321,9 @@ export function shareBars(
       nameW = Math.min(NAME_MAX, Math.max(NAME_MIN, nameW + 2));
     }
     for (const r of rows) {
-      r.row.style.gridTemplateColumns = isWide ? `${nameW}px 1fr 48px 92px` : '1fr 48px 92px';
+      r.row.style.gridTemplateColumns = isWide
+        ? `${nameW}px 1fr 48px 92px${hasNote ? ` ${NOTE_COL}px` : ''}`
+        : `1fr 48px 92px${hasNote ? ` ${NOTE_COL}px` : ''}`;
       // on mobile there is no name column to indent, so the bar itself steps in for a sub-category
       r.track.style.marginLeft = !isWide && r.depth > 0 ? '12px' : '0px';
       if (isWide) continue;

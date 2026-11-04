@@ -1,4 +1,4 @@
-import { FileUp, Play, Plus } from 'lucide';
+import { FileUp, Play, Upload } from 'lucide';
 import { doUpload } from './uploadFlow';
 import { loadDemoData } from './demoData';
 import { C, cx, h } from './util';
@@ -27,7 +27,7 @@ export function csvPicker(label = 'Add CSV'): { input: HTMLInputElement; button:
   }) as HTMLInputElement;
   input.classList.add('hidden');
   onCsvPicked(input);
-  const button = h('button', { class: C.btnPrimary, dataset: { self: '1' }, onclick: () => input.click() }, Ic(Plus, 'size-4'), label);
+  const button = h('button', { class: C.btnPrimary, dataset: { self: '1' }, onclick: () => input.click() }, Ic(Upload, 'size-4'), label);
   return { input, button };
 }
 

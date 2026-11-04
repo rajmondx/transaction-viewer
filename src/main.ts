@@ -1,4 +1,4 @@
-import { FileUp, Landmark, Menu, Moon, Plus, Printer, Sun } from 'lucide';
+import { Download, FileUp, Landmark, Menu, Moon, Printer, Sun, Upload } from 'lucide';
 import { state, bootstrap, subscribe } from './state';
 import { doUpload } from './ui/uploadFlow';
 import { onCsvPicked } from './ui/addCsv';
@@ -11,6 +11,7 @@ import { renderCsvTab } from './ui/tabs/csv';
 import { renderHelp } from './ui/tabs/help';
 import { renderAppFooter } from './ui/footer';
 import { hasTabPrintHandler, setTabPrintHandler, triggerTabPrint } from './ui/print';
+import { hasTabExportHandler, setTabExportHandler, triggerTabExport } from './ui/exportCsv';
 
 const content = document.getElementById('content') as HTMLElement;
 
@@ -64,11 +65,14 @@ function renderActive(): void {
   });
   // the active tab registers its print dialog during render; anything else leaves printing off
   setTabPrintHandler(null);
+  setTabExportHandler(null);
   const host = document.createElement('div');
   (RENDERERS[state.activeTab] ?? renderSpending)(host);
   content.replaceChildren(...Array.from(host.childNodes));
   printBtn.disabled = !hasTabPrintHandler();
   printBtn.title = printBtn.disabled ? 'Nothing to print on this page' : 'Print the current page';
+  exportBtn.disabled = !hasTabExportHandler();
+  exportBtn.title = exportBtn.disabled ? 'No table to export on this page' : 'Export the current table as CSV';
 
   if (fk) {
     const target = document.querySelector(`[data-fk="${fk}"]`) as HTMLElement | null;
@@ -154,7 +158,7 @@ history.replaceState(null, '', TAB_TO_HASH[state.activeTab]);
 menuBtn.appendChild(Ic(Menu, 'size-4'));
 
 document.getElementById('brand-icon')?.appendChild(Ic(Landmark, 'size-5'));
-document.getElementById('upload-btn')?.prepend(Ic(Plus, 'size-4'));
+document.getElementById('upload-btn')?.prepend(Ic(Upload, 'size-4'));
 document.querySelector('#drop-overlay > div')?.prepend(Ic(FileUp, 'size-12'));
 
 // ---------- theme toggle ----------
@@ -192,6 +196,12 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e)
 const printBtn = document.getElementById('print-btn') as HTMLButtonElement;
 printBtn.appendChild(Ic(Printer, 'size-4'));
 printBtn.addEventListener('click', () => triggerTabPrint());
+
+// ---------- export button (opens the active tab's CSV export dialog) ----------
+
+const exportBtn = document.getElementById('export-btn') as HTMLButtonElement;
+exportBtn.appendChild(Ic(Download, 'size-4'));
+exportBtn.addEventListener('click', () => triggerTabExport());
 
 // header add-csv button (the shared picker logic lives in ui/addCsv.ts)
 const fileInput = document.getElementById('csv-file-input') as HTMLInputElement;

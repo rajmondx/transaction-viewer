@@ -84,8 +84,33 @@ describe('stackedBars', () => {
     ]) as unknown as StubEl;
     expect(collect(wrap, 'line')).toHaveLength(0);
     const r = collect(wrap, 'rect')[0];
-    expect(Math.round(Number(r.attrs.y) + Number(r.attrs.height))).toBe(234); // ends at the plot bottom
+    expect(Math.round(Number(r.attrs.y) + Number(r.attrs.height))).toBe(260 - 26); // ends at the plot bottom
     expect(texts(wrap)).toContain('100'); // total label above the bar
+  });
+
+  it('adds one invisible hit column per month when onMonthClick is given', () => {
+    // spending drill-down: the whole month column is clickable, so clicking a bar
+    // opens that single month's view
+    const wrap = stackedBars(['Jan 2026', 'Feb 2026'], [
+      { name: 'Rent', color: '#d1495b', values: [-1500, -1600] },
+    ], 260, { onMonthClick: () => {} }) as unknown as StubEl;
+    const rects = collect(wrap, 'rect');
+    const hits = rects.filter((r) => (r.attrs.class ?? '').includes('month-hit'));
+    expect(hits).toHaveLength(2); // one per month, not per segment
+    // hit columns span the full plot height and sit below the segments (added first)
+    expect(Number(hits[0].attrs.width)).toBeGreaterThan(0);
+    expect(rects.indexOf(hits[0])).toBeLessThan(rects.indexOf(hits[1]));
+    // the segments stay clickable and keep their value tooltips
+    const segs = rects.filter((r) => r.attrs.fill === '#d1495b');
+    expect(segs).toHaveLength(2);
+    for (const s of segs) expect((s.attrs.class ?? '')).toContain('cursor-pointer');
+  });
+
+  it('draws no hit columns without onMonthClick', () => {
+    const wrap = stackedBars(['Jan 2026'], [
+      { name: 'Rent', color: '#d1495b', values: [-1500] },
+    ]) as unknown as StubEl;
+    expect(collect(wrap, 'rect').filter((r) => (r.attrs.class ?? '').includes('month-hit'))).toHaveLength(0);
   });
 });
 
@@ -145,6 +170,20 @@ describe('shareBars', () => {
     expect(rows[0].style.gridTemplateColumns).toBe('72px 1fr 48px 92px');
     expect(name.style.display).toBe('');
     expect(inner[1].style.display).toBe('none');
+  });
+
+  it('appends a detail column when items carry notes (single-month view)', () => {
+    const el = shareBars([
+      { name: 'Rent', color: '#d1495b', value: 300, note: '12 tx' },
+      { name: 'Groceries', color: '#e5793a', value: 100, note: '8 tx' },
+    ], 'Expenses') as unknown as StubEl;
+    const rows = groupsOf(el).flatMap((g) => rowsOf(g));
+    expect(rows).toHaveLength(2);
+    const cells = cellsOf(rows[0]);
+    expect(cells).toHaveLength(5); // name | bar | % | amount | note
+    expect(cells[4].textContent).toBe('12 tx');
+    // without layout measurements the fallback keeps the note column's 64px
+    expect(rows[0].style.gridTemplateColumns).toBe('72px 1fr 48px 92px 64px');
   });
 
   it('hangs sub-categories in the same block as their parent', () => {

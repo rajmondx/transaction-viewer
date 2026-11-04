@@ -1,4 +1,4 @@
-import { SlidersHorizontal, CalendarDays, CalendarRange, Calculator, ChartColumn, ChartPie, ChevronDown, ChevronRight, ArrowLeftRight, Eye, Pin, Printer, ReceiptText, Tags, TrendingDown, TrendingUp, Type } from 'lucide';
+import { SlidersHorizontal, CalendarDays, CalendarRange, Calculator, ChartColumn, ChartPie, ChevronDown, ChevronRight, ArrowLeft, ArrowLeftRight, Eye, Pin, Printer, ReceiptText, Tags, TrendingDown, TrendingUp, Type } from 'lucide';
 import type { IconNode } from 'lucide';
 import type { Agg, Month, Tx } from '../../types';
 import { state, selectSettings, saveSpendingView, emit, type AvgMode } from '../../state';
@@ -10,12 +10,19 @@ import { colResizeHandle } from '../colResize';
 import { noCsvCard } from '../addCsv';
 import { Ic } from '../icons';
 import { shareBars, stackedBars, type ShareItem } from '../charts';
+import { downloadCsv, exportAmount, fileStamp, setTabExportHandler } from '../exportCsv';
 import { buildSpendingPrintDoc, fontControls, openPrintModal, printCheck, printDateInput, printHtml, savePrintStyle, setTabPrintHandler, type SpendingPrintData, type SpendingPrintRow } from '../print';
 
 type Measure = 'expense' | 'income' | 'net';
 
 /** cells clip instead of pushing the fixed-width column apart */
 const SP_CELL = 'overflow-hidden text-ellipsis';
+
+// ---- month drill-down (Monthly chart) ----
+// which month's single-month view the chart card currently shows (null = the
+// normal Monthly chart). Session-local on purpose: a fresh page load starts on
+// the Monthly chart, and 'Return' clears it again.
+let monthFocus: Month | null = null;
 
 // ---- resizable columns (widths per column key: 'cat', 'total', 'avg' or a month) ----
 const SP_COLW_KEY = 'banking.spendingColW';
@@ -438,9 +445,13 @@ export function renderSpending(container: HTMLElement): void {
     }));
   };
 
-  /** the two boxes: the header sticks below the menu, the body scrolls horizontally */
+  /** the two boxes: the header sticks below the menu, the body scrolls horizontally.
+   *  Both sit in a plain wrapper div: a sticky element releases when its containing
+   *  block scrolls past, and the wrapper's block is exactly the table — so the header
+   *  unsticks at the bottom of the table instead of floating over the charts below it. */
   const headBox = h('div', { class: cx(C.card, 'sticky top-[var(--appbar-h)] z-20 overflow-x-hidden border-b-0') }, head.table);
   const bodyBox = h('div', { class: cx(C.card, 'overflow-x-auto border-t-0') }, body.table);
+  const tableWrap = h('div', {}, headBox, bodyBox);
   bodyBox.addEventListener('scroll', () => { headBox.scrollLeft = bodyBox.scrollLeft; }, { passive: true });
 
   // grab-and-slide panning on the non-static content: dragging a month header or a
@@ -589,8 +600,7 @@ export function renderSpending(container: HTMLElement): void {
 
   body.table.appendChild(tbody);
   syncTableW();
-  container.appendChild(headBox);
-  container.appendChild(bodyBox);
+  container.appendChild(tableWrap);
   attachCellSelect(tbody); // one click picks the cell's own text — no column marking here
 
   function toggleDetails(tag: string): void {
@@ -673,10 +683,67 @@ export function renderSpending(container: HTMLElement): void {
     title: 'show every sub-category in a block right below its top-level category',
   }, subsCb, 'Sub-categories');
 
+  // ---- month drill-down: click a bar of the Monthly chart and the card shows that
+  // single month like the Share chart (horizontal share bars), but with extra detail
+  // for the month — Expenses/Income/Net/count, and a transaction count per category.
+  // 'Return' switches the card back to the Monthly chart. (Share chart itself stays
+  // over the full range; the 'Sub-categories' toggle applies to both views.) ----
+  const focus: Month | null = monthFocus && visibleMonths.includes(monthFocus) ? monthFocus : null;
+  const monthAgg = (tag: string, mo: Month): Agg => (sub.get(tag) ?? new Map<Month, Agg>()).get(mo) ?? ZERO;
+  const statBox = (label: string, value: string, tone: string): HTMLElement =>
+    h('div', { class: 'border border-border bg-subtle px-2.5 py-1.5' },
+      h('div', { class: C.label, text: label }),
+      h('div', { class: cx('mt-0.5 text-[14px] font-bold tabular-nums', tone), text: value }));
+
+  /** the month view: a summary strip over a share list of exactly that month */
+  const monthDetail = (mo: Month): HTMLElement => {
+    const valOf = (n: TreeNode): number => measureOf(monthAgg(n.tag, mo), measure);
+    const byMonthMag = (a: TreeNode, b: TreeNode): number => Math.abs(valOf(b)) - Math.abs(valOf(a));
+    const items: ShareItem[] = [];
+    for (const r of [...rootVisible].sort(byMonthMag).slice(0, 12)) {
+      const a = monthAgg(r.tag, mo);
+      items.push({ name: r.tag, color: r.category?.color ?? '#9aa2ad', value: valOf(r), depth: 0, note: `${num0(a.count)} tx` });
+      if (!shareSubs) continue;
+      for (const ch of [...r.children].sort(byMonthMag)) {
+        if (isHidden(ch.tag)) continue;
+        items.push({ name: ch.tag, color: ch.category?.color ?? '#9aa2ad', value: valOf(ch), depth: 1, note: `${num0(monthAgg(ch.tag, mo).count)} tx` });
+      }
+    }
+    const fa = footOf(mo);
+    const net = netOf(fa);
+    return h('div', {},
+      h('div', { class: 'mb-2.5 grid grid-cols-[repeat(auto-fit,minmax(110px,1fr))] gap-2' },
+        statBox('Expenses', money(fa.debit), 'text-danger'),
+        statBox('Income', money(fa.credit), 'text-success'),
+        statBox('Net', money(net), net >= 0 ? 'text-success' : 'text-danger'),
+        statBox('Transactions', num0(fa.count), '')),
+      shareBars(items, `${measureName} — ${monthLabel(mo)}`, {
+        total: rootVisible.reduce((s, r) => s + valOf(r), 0),
+        denominator: rootVisible.reduce((s, r) => s + Math.abs(valOf(r)), 0),
+      }));
+  };
+
+  const monthlyTitleKids: Array<Node | string> = focus
+    ? [Ic(CalendarDays, 'size-4'), `Month — ${monthLabel(focus)}`, h('span', { class: 'flex-1' }),
+        h('button', {
+          class: cx(C.togBase, 'border-border bg-card text-foreground hover:border-input'),
+          dataset: { fk: 'smonth-return' },
+          title: 'show the Monthly chart again',
+          onclick: () => { monthFocus = null; emit(); },
+        }, Ic(ArrowLeft, 'size-3'), 'Return')]
+    : [Ic(ChartColumn, 'size-4'), `Monthly — ${measureName}`,
+        ...(series.length ? [h('span', { class: 'flex-1' }), h('span', { class: 'text-[10.5px] font-normal', text: 'click a month bar for details' })] : [])];
+
   container.appendChild(h('div', { class: 'mt-3.5 grid gap-3' },
     h('div', { class: cx(C.card, 'min-w-0 px-4 py-3') },
-      h('h3', { class: 'mb-2 flex items-center gap-1.5 text-[13px] text-muted-foreground' }, Ic(ChartColumn, 'size-4'), `Monthly — ${measureName}`),
-      series.length ? stackedBars(visibleMonths.map(monthLabel), series) : h('div', { class: C.muted, text: 'no data' })),
+      h('h3', { class: 'mb-2 flex items-center gap-1.5 text-[13px] text-muted-foreground' }, ...monthlyTitleKids),
+      focus
+        ? monthDetail(focus)
+        : series.length
+          ? stackedBars(visibleMonths.map(monthLabel), series, 260, {
+              onMonthClick: (i) => { monthFocus = visibleMonths[i] ?? null; emit(); },
+            })
+          : h('div', { class: C.muted, text: 'no data' })),
     h('div', { class: cx(C.card, 'min-w-0 px-4 py-3') },
       h('h3', { class: 'mb-2 flex items-center gap-1.5 text-[13px] text-muted-foreground' },
         Ic(ChartPie, 'size-4'), 'Share',
@@ -840,8 +907,73 @@ export function renderSpending(container: HTMLElement): void {
     });
   }
 
-  // the header print button opens this dialog while this tab is active
+  // the header print/export buttons open these dialogs while this tab is active
   setTabPrintHandler(() => openPrintDialog());
+  setTabExportHandler(() => openExportDialog());
+
+  /** the spending table as CSV, as displayed: every row (dimmed categories too
+   *  unless the dialog turns them off), the shown month columns in order, Average
+   *  where on, Total last, and the three footer rows. Amounts as plain signed
+   *  numbers (`-1234.50`), not the screen glyphs. */
+  function exportSpendingCsv(includeHidden: boolean): void {
+    const avgCol: string[] = showAvg ? ['Average'] : [];
+    const rows: string[][] = [['Category', ...monthCols.map(monthLabel), ...avgCol, 'Total']];
+    for (const node of flat) {
+      if (!includeHidden && isHidden(node.tag)) continue;
+      const mv = sub.get(node.tag) ?? new Map<Month, Agg>();
+      const tot = measureOf(subtreeTotals(mv), measure);
+      rows.push([
+        node.tag,
+        ...monthCols.map((mo) => exportAmount(measureOf(mv.get(mo) ?? ZERO, measure))),
+        ...(showAvg ? [exportAmount(averageOf(tot))] : []),
+        exportAmount(tot),
+      ]);
+    }
+    const footLine = (label: string, of: (a: Agg) => number): string[] => [
+      label,
+      ...monthCols.map((mo) => exportAmount(of(footOf(mo)))),
+      ...(showAvg ? [exportAmount(averageOf(of(footTot)))] : []),
+      exportAmount(of(footTot)),
+    ];
+    rows.push(footLine('Total Income', (a) => a.credit));
+    rows.push(footLine('Total Expenses', (a) => a.debit));
+    rows.push(footLine('Total Net', netOf));
+    downloadCsv(`spending-${measure}-${fileStamp()}.csv`, rows);
+    const shownRows = includeHidden ? flat.length : flat.length - flat.filter((n) => isHidden(n.tag)).length;
+    toast(`Spending table exported — ${shownRows} categories × ${monthCols.length} month${monthCols.length === 1 ? '' : 's'}`);
+  }
+
+  /** The dialog the header export button opens: spells out what the file would
+   *  contain — rows, month columns, the shown measure, Total/Average, the footer —
+   *  and lets the user leave out the dimmed (unchecked) categories; 'Download CSV'
+   *  confirms, so nothing is downloaded unseen. */
+  function openExportDialog(): void {
+    if (visibleMonths.length === 0 || sCount === 0) {
+      toast('Nothing to export — no transactions in this view', 'err');
+      return;
+    }
+    const pill = (t: string): HTMLElement => h('span', { class: 'border border-border bg-subtle px-2 py-0.5 text-xs', text: t });
+    const contents = [
+      `${num0(flat.length)} category rows (tree order, sub-categories included)`,
+      monthCols.length === 0
+        ? 'no month columns — Only Averages is on'
+        : `${monthCols.length} month column${monthCols.length === 1 ? '' : 's'}: ${monthCols.map(monthLabel).join(', ')}`,
+      `${measureName} numbers per cell`,
+      'Total column',
+      ...(showAvg ? ['Average column'] : []),
+      'footer rows: Total Income, Total Expenses, Total Net',
+    ];
+    const hiddenCount = flat.filter((n) => isHidden(n.tag)).length;
+    const hiddenChk = hiddenCount > 0
+      ? printCheck('Include dimmed categories', true, `${hiddenCount} ${hiddenCount === 1 ? 'category is' : 'categories are'} unchecked — shown dimmed in the table but not counted in the totals. They are part of the display, so they are exported too; turn this off to leave them out.`)
+      : null;
+    const controls = h('div', { class: 'flex flex-col gap-2.5' },
+      field('Table contains', ReceiptText, ...contents.map(pill)),
+      hiddenChk ? field('Hidden categories', Eye, hiddenChk.el) : null,
+      h('p', { class: cx(C.muted, 'text-[12.5px]') },
+        'One line per category, comma-separated; amounts as plain signed numbers (1234.50 / -1234.50), empty cells as 0.00, UTF-8 with BOM so Excel opens it cleanly.'));
+    openPrintModal('Export spending table as CSV', controls, () => exportSpendingCsv(hiddenChk ? hiddenChk.cb.checked : true), 'Download CSV');
+  }
 
   function persist(): void {
     saveSpendingView(state.activeSettingsName, state.spendingView);

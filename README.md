@@ -18,10 +18,13 @@ Built for GitHub Pages — the whole app is the static files in `dist/`.
   whether it is category settings or a CSV schema and imports it.
 - **Spending** — category × month matrix, month and category toggles, average modes, monthly
   stacked chart and share chart (each on its own full-width row; the monthly one scrolls inside its
-  card instead of squeezing anything out). Share bar names get their own column from tablet width up
+  card instead of squeezing anything out). Clicking a month bar switches that card to the
+  **single-month view**: the month's categories as share bars like the Share chart, plus
+  Expenses/Income/Net/transactions for that month and a tx count per category — and a **Return**
+  button shows the normal Monthly chart again. Share bar names get their own column from tablet width up
   and move inside the bar on phones (contrast color, so pale categories stay readable); a
   **Sub-categories** toggle lists each child in a lighter shade directly under its parent, with
-  percentages still relative to the top level. Columns are resizable (drag a header edge,
+  percentages still relative to the top level (it applies to the month view too). Columns are resizable (drag a header edge,
   double-click the handle for automatic width), the row ends with **Total** and **Average** sits
   just before it, and expanding a row shows its transactions as a striped list. Three footer rows
   under the matrix — **Total Income**, **Total Expenses** and **Total Net** (income − expenses) —
@@ -36,7 +39,17 @@ Built for GitHub Pages — the whole app is the static files in `dist/`.
 - **CSV** — search, amount/date/category filters, resizable columns, paging. **Click** a cell to
   select that one value (Ctrl+C copies it); **double-click** to mark the whole column and copy every
   value in it, one per line.
+- **Export CSV** — the header carries an **Export** button (download icon, next to print) on both
+  table pages. It never downloads directly: first a dialog spells out **what exactly would be
+  exported** — row scope (all filtered rows or the current page), order, columns, active filters —
+  and only **Download CSV** confirms. The CSV page exports the table as displayed (one signed
+  Amount column while amounts are merged, Category included); the Spending page exports the matrix
+  with its shown months, **Total**/**Average** and the three Total footer rows (dimmed hidden
+  categories included, switchable in the dialog). Plain signed amounts (`-1234.50`), `dd.mm.yyyy`
+  dates, BOM so Excel reads the UTF-8 file cleanly.
 - **Print** — clean black-on-white PDFs of both tables, with the options you last used remembered.
+- **Sticky headers** — in both tables the header sticks under the menu while scrolling and releases
+  exactly at the bottom of the table (it no longer floats over the charts below it).
 - **Load demo data** on the empty pages: an anonymized English sample statement (common Swiss,
   German and online shops) so you can try everything without touching your real data.
 - Straight corners, zebra-striped tables, full-width layout, light/dark theme, installable PWA.
@@ -48,7 +61,7 @@ npm install
 npm run dev        # vite dev server (the app itself needs no backend) at http://localhost:5173
 npm run build      # static output in dist/
 npm run preview    # serve the built dist/ locally
-npm run test       # vitest: CSV parsing/mappers, dedup, ingest, category engine, search, print, charts, AI prompt
+npm run test       # vitest: CSV parsing/mappers, dedup, ingest, category engine, search, print, charts, CSV export, AI prompt
 npm run typecheck
 ```
 

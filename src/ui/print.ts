@@ -559,11 +559,12 @@ export function printRadio(
 }
 
 /**
- * Options dialog shown before printing: `controls` carries the tab-specific
- * options; the Print button closes the modal and hands over. Same overlay
- * pattern as the upload dialog (Esc / backdrop close).
+ * Options dialog shown before printing (the CSV-export dialogs reuse it with a
+ * different confirm label): `controls` carries the tab-specific options; the
+ * confirm button closes the modal and hands over. Same overlay pattern as the
+ * upload dialog (Esc / backdrop close).
  */
-export function openPrintModal(title: string, controls: HTMLElement, onPrint: () => void): void {
+export function openPrintModal(title: string, controls: HTMLElement, onPrint: () => void, confirmLabel = 'Print'): void {
   closeModal();
   const card = h(
     'div',
@@ -579,7 +580,7 @@ export function openPrintModal(title: string, controls: HTMLElement, onPrint: ()
           closeModal();
           onPrint();
         },
-      }, 'Print'),
+      }, confirmLabel),
       h('button', { class: cx(C.btn, 'ml-auto'), onclick: () => closeModal(), text: 'Cancel' })),
   );
   overlay = h('div', {
