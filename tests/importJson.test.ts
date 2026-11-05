@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { classifyJson } from '../src/ui/importJson';
+import { BACKUP_FORMAT, BACKUP_SCHEMA_VERSION } from '../src/storage/backup';
 
 /** the dropped-file router only needs to name the kind — the import itself is localStorage work */
 describe('classifyJson', () => {
@@ -26,6 +27,9 @@ describe('classifyJson', () => {
   });
   it('recognizes a mapper registry export', () => {
     expect(classifyJson({ saved: [{ name: 'A', columns: { bookingDate: 'Date', text: 'Text', amount: 'Amount' } }] })).toBe('mappers');
+  });
+  it('recognizes a full database backup before the legacy JSON formats', () => {
+    expect(classifyJson({ format: BACKUP_FORMAT, schemaVersion: BACKUP_SCHEMA_VERSION, data: {} })).toBe('backup');
   });
   it('says unknown for anything else', () => {
     expect(classifyJson({ hello: 'world' })).toBe('unknown');

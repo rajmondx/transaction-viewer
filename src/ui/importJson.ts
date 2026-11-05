@@ -4,6 +4,8 @@ import { isBuiltin, saveMapper } from '../storage/mappers';
 import * as sstore from '../storage/settings';
 import { reloadSettingsList, selectSettings } from '../state';
 import { toast } from './util';
+import { BACKUP_FORMAT } from '../storage/backup';
+import { openBackupRestoreModal } from './dbModal';
 
 /**
  * Dropping a .json file anywhere on the page imports it, and the app figures
@@ -15,7 +17,7 @@ import { toast } from './util';
  * - CSV schema:        `{ name, columns: {...} }` or an array of those
  */
 
-export type JsonKind = 'settings' | 'mappers' | 'unknown';
+export type JsonKind = 'backup' | 'settings' | 'mappers' | 'unknown';
 
 const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
@@ -47,6 +49,7 @@ export function classifyJson(data: unknown): JsonKind {
     return 'unknown';
   }
   if (!isRecord(data)) return 'unknown';
+  if (data.format === BACKUP_FORMAT) return 'backup';
   if (hasCategoriesArray(data)) return 'settings';
   // a whole settings store: { active, files: { name → { name, categories } } }
   if (isRecord(data.files) && Object.values(data.files).some(hasCategoriesArray)) return 'settings';
@@ -152,18 +155,19 @@ function importMapperFile(fileName: string, data: unknown): void {
 }
 
 /** one dropped JSON file: recognized, imported and reported */
-export async function importJsonFile(file: File): Promise<void> {
+export async function importJsonFile(file: File): Promise<boolean> {
   const text = await file.text();
   let data: unknown;
   try {
     data = JSON.parse(text) as unknown;
   } catch (e) {
     toast(`${file.name} is not valid JSON: ${(e as Error).message}`, 'err');
-    return;
+    return false;
   }
   const kind = classifyJson(data);
+  if (kind === 'backup') return openBackupRestoreModal(file.name, data);
   if (kind === 'settings') importSettingsFile(file.name, data);
   else if (kind === 'mappers') importMapperFile(file.name, data);
   else toast(`${file.name} is neither category settings nor a CSV schema (no "categories" / "columns")`, 'err');
+  return false;
 }
-

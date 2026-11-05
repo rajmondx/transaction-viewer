@@ -1,4 +1,4 @@
-import { Download, FileUp, Landmark, Menu, Moon, Printer, Sun, Upload } from 'lucide';
+import { Database, Download, FileUp, Landmark, Menu, Moon, Printer, Sun, Upload } from 'lucide';
 import { state, bootstrap, subscribe } from './state';
 import { doUpload } from './ui/uploadFlow';
 import { onCsvPicked } from './ui/addCsv';
@@ -12,6 +12,7 @@ import { renderHelp } from './ui/tabs/help';
 import { renderAppFooter } from './ui/footer';
 import { hasTabPrintHandler, setTabPrintHandler, triggerTabPrint } from './ui/print';
 import { hasTabExportHandler, setTabExportHandler, triggerTabExport } from './ui/exportCsv';
+import { openDbModal } from './ui/dbModal';
 
 const content = document.getElementById('content') as HTMLElement;
 
@@ -203,6 +204,12 @@ const exportBtn = document.getElementById('export-btn') as HTMLButtonElement;
 exportBtn.appendChild(Ic(Download, 'size-4'));
 exportBtn.addEventListener('click', () => triggerTabExport());
 
+// ---------- complete database backup / restore ----------
+
+const dbBtn = document.getElementById('db-btn') as HTMLButtonElement;
+dbBtn.appendChild(Ic(Database, 'size-4'));
+dbBtn.addEventListener('click', openDbModal);
+
 // header add-csv button (the shared picker logic lives in ui/addCsv.ts)
 const fileInput = document.getElementById('csv-file-input') as HTMLInputElement;
 document.getElementById('upload-btn')!.addEventListener('click', () => fileInput.click());
@@ -251,7 +258,10 @@ window.addEventListener('drop', async (e) => {
     return;
   }
   // JSON files import themselves (category settings vs mapper schema is detected)
-  for (const f of json) await importJsonFile(f);
+  for (const f of json) {
+    const restored = await importJsonFile(f);
+    if (restored) return; // don't apply other dropped files after a full replacement
+  }
   if (csv.length > 0) await doUpload(csv);
 });
 

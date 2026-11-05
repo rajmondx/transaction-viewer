@@ -64,3 +64,21 @@ export async function putCsvFile(name: string, content: string, mapper: Mapper |
 export async function deleteCsvFile(name: string): Promise<void> {
   await withStore('readwrite', (s) => s.delete(name));
 }
+
+/** Replace the complete CSV store in one IndexedDB transaction. */
+export async function replaceCsvFiles(files: StoredCsv[]): Promise<void> {
+  const db = await openDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      const store = tx.objectStore(STORE);
+      store.clear();
+      for (const file of files) store.put(file);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error('Could not replace stored CSV files'));
+      tx.onabort = () => reject(tx.error ?? new Error('Replacing stored CSV files was aborted'));
+    });
+  } finally {
+    db.close();
+  }
+}

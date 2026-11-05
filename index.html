@@ -14,8 +14,14 @@
       property="og:description"
       content="Categorize bank statement CSVs, explore spending per month and print reports — entirely in your browser."
     />
-    <meta property="og:url" content="https://rajmondx.github.io/transaction-viewer/" />
-    <meta property="og:image" content="https://rajmondx.github.io/transaction-viewer/android-chrome-512x512.png" />
+    <meta
+      property="og:url"
+      content="https://rajmondx.github.io/transaction-viewer/"
+    />
+    <meta
+      property="og:image"
+      content="https://rajmondx.github.io/transaction-viewer/android-chrome-512x512.png"
+    />
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="icon" href="./favicon.ico" />
     <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
@@ -115,6 +121,12 @@
           class="grid size-9 cursor-pointer place-items-center border border-border bg-card text-foreground transition-colors hover:border-input disabled:cursor-not-allowed disabled:opacity-40"
         ></button>
         <button
+          id="db-btn"
+          title="Database backup and restore"
+          aria-label="Database backup and restore"
+          class="grid size-9 cursor-pointer place-items-center border border-border bg-card text-foreground transition-colors hover:border-input"
+        ></button>
+        <button
           id="theme-btn"
           title="Toggle light / dark theme"
           aria-label="Toggle theme"
@@ -126,7 +138,7 @@
           aria-label="Add CSV"
           class="inline-flex cursor-pointer items-center gap-1.5 border border-primary bg-primary px-2.5 py-1.5 text-[13px] text-primary-foreground transition-colors hover:bg-primary/85"
         >
-          <span class="hidden sm:inline">Add CSV</span>
+          <span class="hidden sm:inline">CSV</span>
         </button>
         <div class="relative md:hidden">
           <button
