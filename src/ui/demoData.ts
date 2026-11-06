@@ -1,14 +1,21 @@
-import { addUploads } from '../state';
+import { addUploads, state } from '../state';
 import { ABS_MAPPER } from '../csv/schemas';
 import { DEMO_FILE_NAME, demoCsv } from '../seed/demoCsv';
+import { configureDemoCashCategories, mergeDemoCashEntries } from '../seed/demoCash';
+import { listCashEntries, replaceCashEntries } from '../storage/files';
+import { putSettingsObj } from '../storage/settings';
 
 /**
- * One-click sample data: generates the anonymized demo statement
- * (src/seed/demoCsv.ts) and runs it through the normal upload path, so it is
- * stored, parsed, categorized and deduplicated exactly like a real CSV.
- * Re-loading replaces the previous demo file (same name), and the CSV page
- * removes it again through its "remove" button.
+ * One-click sample data: generates the anonymized demo statement and matching
+ * manual cash entries. Re-loading replaces both demo datasets while preserving
+ * the user's own cash entries; removing the demo statement removes its cash rows.
  */
 export async function loadDemoData(): Promise<void> {
+  if (state.activeSettingsName === 'default' && configureDemoCashCategories(state.settings)) {
+    putSettingsObj(state.settings);
+  }
+  const cashEntries = await listCashEntries();
+  await replaceCashEntries(mergeDemoCashEntries(cashEntries));
+  state.cashEntries = await listCashEntries();
   await addUploads([{ name: DEMO_FILE_NAME, content: demoCsv(), mapper: ABS_MAPPER }]);
 }

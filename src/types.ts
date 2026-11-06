@@ -24,6 +24,22 @@ export interface Tx {
   credit: number;
   /** stored as positive magnitude */
   debit: number;
+  /** Present on manually entered cash transactions, never on imported bank rows. */
+  cashEntryId?: string;
+  manualCategory?: string;
+  /** Reconciliation corrections affect cash balance, not Spending totals. */
+  cashAdjustment?: boolean;
+}
+
+export interface CashEntry {
+  id: string;
+  /** ISO yyyy-mm-dd */
+  date: string;
+  kind: 'expense' | 'income' | 'adjustment';
+  /** Positive expense/income magnitude; signed balance delta for adjustments. */
+  amount: number;
+  category: string;
+  note: string;
 }
 
 /** One search rule inside a category. */
@@ -44,6 +60,8 @@ export interface Category {
   dateFrom: string | null;
   dateTo: string | null;
   enabled: boolean;
+  /** Marks a bank category as cash moved between bank and wallet, not spending. */
+  cashMovement?: 'withdrawal' | 'deposit' | null;
 }
 
 /** One CSV schema = how a bank's columns map onto the internal transaction fields. */

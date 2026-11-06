@@ -101,6 +101,7 @@ export function parseCategory(raw: unknown, i: number): Category {
     dateFrom: parseIso(o.date_from ?? o.dateFrom),
     dateTo: parseIso(o.date_to ?? o.dateTo),
     enabled: o.enabled === false ? false : true,
+    cashMovement: o.cash_movement === 'withdrawal' || o.cash_movement === 'deposit' ? o.cash_movement : null,
   };
 }
 
@@ -134,6 +135,7 @@ export function serializeSettings(s: Settings): string {
       if (c.dateFrom) o.date_from = c.dateFrom;
       if (c.dateTo) o.date_to = c.dateTo;
       if (!c.enabled) o.enabled = false;
+      if (c.cashMovement) o.cash_movement = c.cashMovement;
       return o;
     }),
   };

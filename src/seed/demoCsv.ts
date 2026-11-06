@@ -158,7 +158,8 @@ function monthRows(r: () => number, y: number, m: number, monthName: string, ref
 
   // ---- cash + own accounts ------------------------------------------------
   add({ day: 13, debit: money(8, 40), text: `TWINT payment to ${pick(['Example Flower Shop', 'Corner Bakery White Cat', 'Garage Brenner', 'Market Kiosk'])}` });
-  add({ day: 11, debit: money(60, 180, false), text: 'Bancomat cash withdrawal Zurich Hauptbahnhof' });
+  add({ day: 11, debit: money(60, 180, false), text: 'ATM cash withdrawal Zurich Central' });
+  add({ day: 14, credit: money(10, 20, false), text: 'Cash deposit at branch Zurich' });
   const transferRef = `${refPrefix}/900001`;
   const transferAmt = money(200, 400, false);
   add({ day: 27, debit: transferAmt, account: 'everyday', ref: transferRef, text: `Transfer to savings account ${monthName}` });

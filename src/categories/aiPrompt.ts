@@ -146,10 +146,12 @@ export function renderExisting(settings: Settings): string {
   const out: string[] = [];
   for (const r of roots) {
     const own = ruleText(r.tag);
-    out.push(`${r.tag}${own ? `: ${own}` : ''}`);
+    const root = settings.categories.find((c) => c.tag === r.tag);
+    out.push(`${r.tag}${own ? `: ${own}` : ''}${root?.cashMovement ? ` [cash ${root.cashMovement}]` : ''}`);
     for (const k of kidsOf(r.tag)) {
       const kr = ruleText(k);
-      out.push(`  - ${k}${kr ? `: ${kr}` : ''}`);
+      const child = settings.categories.find((c) => c.tag === k);
+      out.push(`  - ${k}${kr ? `: ${kr}` : ''}${child?.cashMovement ? ` [cash ${child.cashMovement}]` : ''}`);
     }
   }
   return out.join('\n');
@@ -177,6 +179,7 @@ export function buildAiPrompt(settings: Settings, lines: PromptLine[] | null): s
     'Format rules:',
     '- "tag": category name in English, unique, short (one or two words).',
     '- "tag_father": optional name of the parent category; leave it out for top-level categories.',
+    '- Optional "cash_movement": "withdrawal" or "deposit" only for categories that identify cash transfers; preserve any such marker shown in my current categories.',
     '- "color": hex colour. Top-level categories get clearly different colours, sub-categories a lighter shade of their parent.',
     '- "iban": array of IBANs this category is limited to; use [] for "any account".',
     '- "search_tag": array of lowercase words that appear in the booking text. Matching is a case-insensitive "the text contains this word" test. Use the payee word only - never dates, amounts or card numbers.',

@@ -41,7 +41,7 @@ export function noCsvCard(detail?: string): HTMLElement {
   const demo = h('button', {
     class: cx(C.link, 'inline-flex items-center gap-1'),
     dataset: { self: '1' },
-    title: 'An anonymized sample statement (English texts, common shops) — stored like any upload and removable on the CSV page',
+    title: 'An anonymized sample statement with cash withdrawals and manual cash expenses — stored locally and removable on the Transactions page',
     onclick: () => void loadDemoData(),
   }, Ic(Play, 'size-3.5'), 'Load demo data');
   const box = h('div', {

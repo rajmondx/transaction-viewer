@@ -1,9 +1,11 @@
-import { SlidersHorizontal, CalendarDays, CalendarRange, Calculator, ChartColumn, ChartPie, ChevronDown, ChevronRight, ArrowLeft, ArrowLeftRight, Eye, Pin, Printer, ReceiptText, Tags, TrendingDown, TrendingUp, Type } from 'lucide';
+import { SlidersHorizontal, CalendarDays, CalendarRange, Calculator, ChartColumn, ChartPie, ChevronDown, ChevronRight, ArrowLeft, ArrowLeftRight, Banknote, Eye, Pin, Printer, ReceiptText, Tags, TrendingDown, TrendingUp, Type } from 'lucide';
 import type { IconNode } from 'lucide';
 import type { Agg, Month, Tx } from '../../types';
+import { cashEntryTx, cashOpeningBalance, isUncountedCashTransfer, uniqueReconciliationCategory } from '../../cash';
+import { buildBalanceOverview } from '../../balanceOverview';
 import { state, selectSettings, saveSpendingView, emit, type AvgMode } from '../../state';
 import { aggregate, buildTree, flattenTree, matchTx, monthsFromTxs, UNCAT, type TreeNode } from '../../categories/engine';
-import { C, clear, cx, dmy, field, h, money, monthLabel, monthKey, num0, num2, toast } from '../util';
+import { C, clear, cx, dmy, field, h, money, monthLabel, monthKey, num0, num2, sourceGroup, toast } from '../util';
 import { attachCellSelect, clearColumnSelect } from '../cellSelect';
 import { attachDragPan } from '../dragScroll';
 import { colResizeHandle } from '../colResize';
@@ -176,24 +178,56 @@ export function renderSpending(container: HTMLElement): void {
   clearColumnSelect(); // a leftover marked column from the CSV page must not linger
   clear(container);
   // without a stored CSV there is nothing to aggregate — point at the upload instead
-  if (state.files.length === 0) {
+  if (state.files.length === 0 && state.cashEntries.length === 0) {
     container.appendChild(noCsvCard('No CSV loaded yet — this page needs at least one statement.'));
     return;
   }
   const settings = state.settings;
   const view = state.spendingView;
+  const balanceOverview = buildBalanceOverview(state.txs, state.cashEntries, settings, cashOpeningBalance());
 
-  const txsInRange = state.txs.filter((t) => {
+  const reconciliationCategory = uniqueReconciliationCategory(settings);
+  const cashTxs = state.cashEntries.map((entry) => cashEntryTx(entry, reconciliationCategory));
+  // Cash-movement bank rows are no longer dropped from the report input: they stay
+  // visible in the table and the drill-down, but only count into the totals once the
+  // user includes that category (clickable "Cash movement" badge on its row).
+  const cashTags = new Set(settings.categories.filter((c) => c.cashMovement).map((c) => c.tag));
+  const countedCash = new Set(view.cashInSpending.filter((t) => cashTags.has(t)));
+  const txsInRangeAll = [...state.txs, ...cashTxs].filter((t) => {
     const d = t.bookingDate || t.valueDate;
     if (view.dateFrom && d < view.dateFrom) return false;
     if (view.dateTo && d > view.dateTo) return false;
     return true;
   });
+  // Cash | Bank | All segment: 'cash' keeps the manually recorded entries only,
+  // 'bank' the imported rows — manual cash entries are hidden. Uncounted cash
+  // transfers stay out of the totals exactly as they do in the default view.
+  const scopeRows = view.source === 'both'
+    ? txsInRangeAll
+    : txsInRangeAll.filter((t) => view.source === 'cash' ? Boolean(t.cashEntryId) : !t.cashEntryId);
+  const txsInRange = scopeRows.filter((t) => !isUncountedCashTransfer(t, settings, countedCash));
 
-  const agg = aggregate(txsInRange, settings);
-  const allMonths = agg.months.length > 0 ? agg.months : monthsFromTxs(state.txs);
+  // This reserved category exists only in the report model; it is never written
+  // into the user's category settings. It keeps corrections visible and
+  // prevents them being rolled into ordinary Uncategorized transactions.
+  const reportSettings = {
+    ...settings,
+    categories: [
+      ...settings.categories,
+      {
+        tag: reconciliationCategory, tagFather: null, color: '#9aa2ad', ibans: [], rules: [],
+        dateFrom: null, dateTo: null, enabled: true,
+      },
+    ],
+  };
+  const agg = aggregate(txsInRange, reportSettings);
+  // Drill-down scope: everything in range, including cash-movement rows the totals
+  // leave out — so expanding "Bargeld" still lists its 18 withdrawals. When the
+  // Cash | Bank | All segment hides one source, the scope shrinks to the visible rows.
+  const aggAll = view.source === 'both' ? aggregate(txsInRangeAll, reportSettings) : aggregate(scopeRows, reportSettings);
+  const allMonths = aggAll.months.length > 0 ? aggAll.months : monthsFromTxs(scopeRows);
   const visibleMonths = allMonths.filter((m) => !view.hiddenMonths.includes(m));
-  const roots = buildTree(settings);
+  const roots = buildTree(reportSettings);
   const flat = flattenTree(roots);
   const isHidden = (tag: string) => view.hiddenCats.includes(tag);
   const sub = subtreeByMonth(roots, agg.own);
@@ -206,6 +240,19 @@ export function renderSpending(container: HTMLElement): void {
   /** Average = row Total ÷ number of visible (selected) months, zero months included */
   const averageOf = (total: number): number => (visibleMonths.length > 0 ? total / visibleMonths.length : 0);
 
+  const balanceCards = h('section', { class: 'mb-3' },
+    h('h2', { class: 'mb-2 text-sm font-semibold' }, 'Balance summary'),
+    h('div', { class: 'grid grid-cols-[repeat(auto-fit,minmax(165px,1fr))] gap-2' },
+      summaryCard('Total balance', `${balanceOverview.unanchoredAccounts.length > 0 ? 'Δ ' : ''}${money(balanceOverview.combinedBalance)}`, balanceOverview.combinedBalance < 0 ? 'text-danger' : '', Banknote),
+      summaryCard('Cash balance', money(balanceOverview.cashBalance), balanceOverview.cashBalance < 0 ? 'text-danger' : '', Banknote),
+      summaryCard('Bank balance', `${balanceOverview.unanchoredAccounts.length > 0 ? 'Δ ' : ''}${money(balanceOverview.bankBalance)}`, balanceOverview.bankBalance < 0 ? 'text-danger' : '', ArrowLeftRight),
+    ),
+    h('div', { class: cx(C.card, 'mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-3.5 py-2.5 text-xs') },
+      balanceOverview.unanchoredAccounts.length > 0
+        ? h('span', { class: C.muted }, `Δ is an estimate: accounts without opening balances use net movement from zero. Set opening balances in Transactions for actual bank and total balances. Missing anchors: ${balanceOverview.unanchoredAccounts.join(', ')}.`)
+        : h('span', { class: C.muted, text: 'Opening balances, imported transactions, cash activity and reconciliation corrections are reflected here. Spending filters below affect only the report.' })));
+  container.appendChild(balanceCards);
+
   // ---- summary (always at top, reflects the current view) ----
   let sDebit = 0, sCredit = 0, sCount = 0, catDebit = 0;
   for (const [tag, byMonth] of agg.own) {
@@ -214,7 +261,7 @@ export function renderSpending(container: HTMLElement): void {
       const a = byMonth.get(mo);
       if (!a) continue;
       sDebit += a.debit; sCredit += a.credit; sCount += a.count;
-      if (tag !== UNCAT) catDebit += a.debit;
+      if (tag !== UNCAT && tag !== reconciliationCategory) catDebit += a.debit;
     }
   }
   const coverage = sDebit > 0 ? (catDebit / sDebit) * 100 : 0;
@@ -244,6 +291,12 @@ export function renderSpending(container: HTMLElement): void {
   ) as HTMLSelectElement;
   settingsSel.value = state.activeSettingsName;
   settingsSel.onchange = () => void selectSettings(settingsSel.value);
+
+  const sourceBtns = sourceGroup('ssrc', view.source, {
+    cash: 'count only manually recorded cash entries; bank transactions and cash transfers are hidden',
+    bank: 'count imported bank transactions only; manual cash entries are hidden',
+    all: 'count everything (default); cash-transfer rows stay out of the totals until you include them',
+  }, (v) => { view.source = v; persist(); emit(); });
 
   const fromInput = h('input', { class: C.input, attrs: { type: 'date', value: view.dateFrom, 'aria-label': 'from' } }) as HTMLInputElement;
   const toInput = h('input', { class: C.input, attrs: { type: 'date', value: view.dateTo, 'aria-label': 'to' } }) as HTMLInputElement;
@@ -334,7 +387,7 @@ export function renderSpending(container: HTMLElement): void {
   averageField.classList.add('col-span-full');
   container.appendChild(
     h('div', { class: cx(C.card, 'mb-3 grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] items-start gap-x-5 gap-y-3.5 px-3.5 py-3') },
-      field('Filter', SlidersHorizontal, settingsSel),
+      field('Filter', SlidersHorizontal, settingsSel, ...sourceBtns),
       dateField,
       showField,
       monthsField,
@@ -541,6 +594,19 @@ export function renderSpending(container: HTMLElement): void {
       Ic(expanded.has(tag) ? ChevronDown : ChevronRight, 'size-3.5'));
     const nameLabel = h('span', { class: 'min-w-0 flex-1 truncate', text: tag, title: tag });
     if (cat && cat.rules.length > 0) nameLabel.title = `rules: ${cat.rules.map((r) => (r.regex ? `/${r.text}/` : r.text) + (r.fuzzy ? '~' : '') + (r.caseSensitive ? ' (case)' : '')).join(', ')}`;
+    // a cash-movement category: show a badge that explains it and toggles whether its
+    // rows count as spending (excluded by default — the money moves to the wallet)
+    const cashMv = cat?.cashMovement ?? null;
+    const counted = countedCash.has(tag);
+    if (cashMv) nameLabel.title = `${nameLabel.title} (Cash movement)`;
+    const cashBadge = cashMv ? h('button', {
+      class: cx('inline-flex shrink-0 cursor-pointer items-center gap-1 border bg-transparent px-1.5 py-px font-sans text-[10px] select-none', counted ? C.chipOk : C.chipWarn),
+      attrs: { type: 'button', 'aria-pressed': counted ? 'true' : 'false' },
+      title: counted
+        ? `${tag} (Cash movement) — counted in Spending totals; click to exclude them again`
+        : `${tag} (Cash movement) — excluded from Spending totals (transfers, not spending); click to count them here anyway`,
+      onclick: (e: MouseEvent) => { e.stopPropagation(); toggleCashCounted(tag); },
+    }, Ic(Banknote, 'size-3'), counted ? 'counted' : 'Cash movement') : null;
     const badge = hasDateRange
       ? h('span', { class: 'border border-warning/30 bg-warning/10 px-1.5 py-px text-[10px] text-warning', title: 'category date range', text: `${cat!.dateFrom ? dmy(cat!.dateFrom) : '…'}–${cat!.dateTo ? dmy(cat!.dateTo) : '…'}` })
       : null;
@@ -549,7 +615,7 @@ export function renderSpending(container: HTMLElement): void {
     // color the row itself composites to): a semi-transparent bg on this sticky cell
     // would let the month values sliding underneath it show through the name column
     const nameCell = h('td', { class: cx('flex items-center gap-2 overflow-hidden border-b border-border px-2.5 py-2 whitespace-nowrap group-hover:bg-[color-mix(in_srgb,var(--muted)_40%,var(--card))]', catPinned && 'sticky left-0 z-3', stripe) },
-      toggle, cb, dot, nameLabel, badge, offBadge);
+      toggle, cb, dot, nameLabel, cashBadge, badge, offBadge);
     nameCell.style.paddingLeft = `${10 + node.depth * 22}px`;
     tr.appendChild(nameCell);
 
@@ -603,6 +669,13 @@ export function renderSpending(container: HTMLElement): void {
   container.appendChild(tableWrap);
   attachCellSelect(tbody); // one click picks the cell's own text — no column marking here
 
+  function toggleCashCounted(tag: string): void {
+    const set = new Set(view.cashInSpending);
+    if (set.has(tag)) set.delete(tag); else set.add(tag);
+    view.cashInSpending = [...set];
+    persist(); emit();
+  }
+
   function toggleDetails(tag: string): void {
     if (expanded.has(tag)) {
       expanded.delete(tag);
@@ -615,22 +688,30 @@ export function renderSpending(container: HTMLElement): void {
     detRow.removeAttribute('hidden');
     const cell = detRow.firstElementChild as HTMLElement;
     clear(cell);
-    const txs = (agg.txByTag.get(tag) ?? []).filter((t) => {
+    const txs = (aggAll.txByTag.get(tag) ?? []).filter((t) => {
       const mo = monthKey(t.bookingDate || t.valueDate);
       return visibleMonths.includes(mo);
     });
-    const tree = buildTree(state.settings);
+    const tree = buildTree(reportSettings);
     const node = flattenTree(tree).find((n) => n.tag === tag);
     const inSubtree = new Set<string>();
     const collect = (n: TreeNode) => { inSubtree.add(n.tag); n.children.forEach(collect); };
     if (node) collect(node);
     // respect hidden months in the subtree list too (Uncategorized renders from this)
-    const visibleInRange = txsInRange.filter((t) => visibleMonths.includes(monthKey(t.bookingDate || t.valueDate)));
-    const subtreeTxs = visibleInRange.filter((t) => inSubtree.has(matchTx(t, state.settings)));
+    const visibleInRange = scopeRows.filter((t) => visibleMonths.includes(monthKey(t.bookingDate || t.valueDate)));
+    const subtreeTxs = visibleInRange.filter((t) => inSubtree.has(matchTx(t, reportSettings)));
     cell.appendChild(h('div', { class: 'flex items-baseline gap-3.5 px-3.5 pt-2.5 pb-1' },
       h('b', { text: `${tag} — ${txs.length} transactions` }),
       h('span', { class: C.muted, text: `directly matched (own rules); total incl. subcategories: ${subtreeTxs.length}` }),
     ));
+    // when these rows are listed but left out of the totals, say so right here
+    if (cashTags.has(tag) && !countedCash.has(tag)) {
+      cell.appendChild(h('div', { class: cx(C.chipWarn, 'mx-3.5 mb-1.5 inline-flex') },
+        Ic(Banknote, 'size-3'),
+        'Cash movement — these rows move money into/out of your wallet, so they are listed here but not counted in Spending totals. Click the ',
+        h('b', { text: 'Cash movement' }),
+        ' badge on the row to count them.'));
+    }
     renderTxsInto(cell, tag === UNCAT ? subtreeTxs : txs, visibleMonths);
   }
 
@@ -1002,7 +1083,9 @@ function renderTxsInto(el: HTMLElement, txs: Tx[], _mo: Month[]): void {
       ),
     },
       h('span', { class: 'font-mono text-muted-foreground', text: dmy(t.bookingDate) }),
-      h('span', { class: 'truncate', text: t.text }),
+      h('span', { class: 'flex min-w-0 items-center gap-1.5' },
+        t.cashEntryId ? Ic(Banknote, 'size-3.5 shrink-0 text-success') : null,
+        h('span', { class: 'truncate', text: t.text, title: t.cashEntryId ? `Cash · ${t.text}` : t.text })),
       h('span', { class: cx('text-right tabular-nums', t.credit > 0 ? 'text-success' : 'text-danger'), text: t.credit > 0 ? `+${num2(t.credit)}` : `−${num2(t.debit)}` }),
     ));
   }

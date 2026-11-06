@@ -51,6 +51,7 @@ export function txMatchesCategory(tx: Tx, c: Category): boolean {
 
 /** First matching category wins (order = priority). Returns tag or UNCAT. */
 export function matchTx(tx: Tx, settings: Settings): string {
+  if (tx.manualCategory) return settings.categories.some((c) => c.tag === tx.manualCategory) ? tx.manualCategory : UNCAT;
   for (const c of settings.categories) {
     if (txMatchesCategory(tx, c)) return c.tag;
   }

@@ -1,8 +1,9 @@
+import type { CashEntry } from '../types';
 import type { StoredCsv } from './files';
-import { listCsvFiles, replaceCsvFiles } from './files';
+import { listCashEntries, listCsvFiles, replaceCashEntries, replaceCsvFiles } from './files';
 
 export const BACKUP_FORMAT = 'transaction-viewer-backup';
-export const BACKUP_SCHEMA_VERSION = 1;
+export const BACKUP_SCHEMA_VERSION = 2;
 const APP_KEY_PREFIX = 'banking.';
 
 export interface AppBackup {
@@ -14,6 +15,7 @@ export interface AppBackup {
     localStorage: Record<string, string>;
     /** Original CSV files and the mapper snapshot used to parse each one. */
     csvFiles: StoredCsv[];
+    cashEntries: CashEntry[];
   };
 }
 
@@ -30,6 +32,9 @@ function validateBackupShape(value: unknown): AppBackup {
   }
   if (!isRecord(value.data) || !isRecord(value.data.localStorage) || !Array.isArray(value.data.csvFiles)) {
     throw new Error('Backup is missing its data, settings, or CSV files');
+  }
+  if ((value.schemaVersion as number) >= 2 && !Array.isArray(value.data.cashEntries)) {
+    throw new Error('Backup is missing its cash entries');
   }
 
   const localStorage: Record<string, string> = {};
@@ -66,11 +71,24 @@ function validateBackupShape(value: unknown): AppBackup {
   if (new Set(csvFiles.map((file) => file.name)).size !== csvFiles.length) {
     throw new Error('Backup contains duplicate CSV file names');
   }
+  const cashEntriesRaw = Array.isArray(value.data.cashEntries) ? value.data.cashEntries : [];
+  const cashEntries = cashEntriesRaw.map((entry, index): CashEntry => {
+    if (!isRecord(entry) || typeof entry.id !== 'string' || typeof entry.date !== 'string'
+      || (entry.kind !== 'expense' && entry.kind !== 'income' && entry.kind !== 'adjustment') || typeof entry.amount !== 'number'
+      || !Number.isFinite(entry.amount) || (entry.kind === 'adjustment' ? entry.amount === 0 : entry.amount <= 0) || typeof entry.category !== 'string'
+      || typeof entry.note !== 'string') {
+      throw new Error(`Cash entry ${index + 1} in backup is invalid`);
+    }
+    return entry as unknown as CashEntry;
+  });
+  if (new Set(cashEntries.map((entry) => entry.id)).size !== cashEntries.length) {
+    throw new Error('Backup contains duplicate cash entry IDs');
+  }
   return {
     format: BACKUP_FORMAT,
     schemaVersion: value.schemaVersion as number,
     exportedAt: typeof value.exportedAt === 'string' ? value.exportedAt : '',
-    data: { localStorage, csvFiles },
+    data: { localStorage, csvFiles, cashEntries },
   };
 }
 
@@ -81,6 +99,9 @@ export function parseBackup(value: unknown): AppBackup {
   let current = backup;
   while (current.schemaVersion < BACKUP_SCHEMA_VERSION) {
     switch (current.schemaVersion) {
+      case 1:
+        current = { ...current, schemaVersion: 2, data: { ...current.data, cashEntries: [] } };
+        break;
       default:
         throw new Error(`No migration exists for backup schema version ${current.schemaVersion}`);
     }
@@ -101,13 +122,14 @@ export async function createBackup(): Promise<AppBackup> {
     format: BACKUP_FORMAT,
     schemaVersion: BACKUP_SCHEMA_VERSION,
     exportedAt: new Date().toISOString(),
-    data: { localStorage, csvFiles: await listCsvFiles() },
+    data: { localStorage, csvFiles: await listCsvFiles(), cashEntries: await listCashEntries() },
   };
 }
 
 /** Restore all app-owned state. Roll back both stores if either write fails. */
 export async function restoreBackup(backup: AppBackup): Promise<void> {
   const previousFiles = await listCsvFiles();
+  const previousCash = await listCashEntries();
   const previousStorage: Record<string, string> = {};
   for (let i = 0; i < window.localStorage.length; i++) {
     const key = window.localStorage.key(i);
@@ -126,10 +148,12 @@ export async function restoreBackup(backup: AppBackup): Promise<void> {
 
   try {
     await replaceCsvFiles(backup.data.csvFiles);
+    await replaceCashEntries(backup.data.cashEntries);
     replaceLocalStorage(backup.data.localStorage);
   } catch (error) {
     try {
       await replaceCsvFiles(previousFiles);
+      await replaceCashEntries(previousCash);
       replaceLocalStorage(previousStorage);
     } catch (rollbackError) {
       throw new Error(`Restore failed (${String(error)}); rollback also failed (${String(rollbackError)}). Reload and check your data.`);

@@ -1,12 +1,16 @@
 import { ArrowUpDown, Banknote, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronUp, FileSpreadsheet, ListFilter, Printer, RotateCcw, Search, Tags, Type, Wand2 } from 'lucide';
 import type { IconNode } from 'lucide';
 import type { Tx } from '../../types';
+import { allTransactionRows, calculateCashBalances, cashOpeningBalance, compareTransactionOrder, isCashTransfer, matchesTransactionSource } from '../../cash';
+import { calculateCombinedBalances } from '../../balanceOverview';
+import { renderCash } from './cash';
+import { bankAccountKey, calculateAccountBalances, calculatedAccountEndings, groupBankAccounts, loadAccountOpeningBalances, removeAccountOpeningBalance, saveAccountOpeningBalance } from '../../bankBalances';
 import { state, emit, removeFile } from '../../state';
 import { openMapperManager } from '../uploadFlow';
 import { csvPicker, noCsvCard } from '../addCsv';
 import { defaultCsvFilter, filterTxs, highlight, txAmount, type CsvFilter } from '../search';
 import { matchTx, UNCAT } from '../../categories/engine';
-import { C, clear, cx, dmy, field, h, num0, num2, readableOn, toast } from '../util';
+import { C, clear, cx, dmy, field, h, num0, num2, readableOn, sourceGroup, toast } from '../util';
 import { attachCellSelect, clearColumnSelect } from '../cellSelect';
 import { attachDragPan } from '../dragScroll';
 import { colResizeHandle } from '../colResize';
@@ -25,6 +29,7 @@ interface CsvTabState {
   showValue: boolean;
   showRef: boolean;
   merged: boolean;
+  showBalance: boolean;
 }
 const PAGE_SIZES = [25, 50, 100, 250, 500, 0]; // 0 = show all
 const PGKEY = 'banking.csvPageSize';
@@ -38,24 +43,26 @@ function loadPageSize(): number {
   return raw !== null && PAGE_SIZES.includes(n) ? n : 250;
 }
 const COLVIS_KEY = 'banking.csvCols';
-function loadColVis(): Pick<CsvTabState, 'showValue' | 'showRef' | 'merged'> {
+function loadColVis(): Pick<CsvTabState, 'showValue' | 'showRef' | 'merged' | 'showBalance'> {
   try {
     const raw = JSON.parse(localStorage.getItem(COLVIS_KEY) ?? 'null') as Record<string, unknown> | null;
     if (raw && typeof raw === 'object') {
-      return { showValue: raw.showValue === true, showRef: raw.showRef === true, merged: raw.merged !== false };
+      return { showValue: raw.showValue === true, showRef: raw.showRef === true, merged: raw.merged !== false, showBalance: raw.showBalance !== false };
     }
   } catch { /* ignore */ }
-  return { showValue: false, showRef: false, merged: true };
+  return { showValue: false, showRef: false, merged: true, showBalance: true };
 }
 function saveColVis(): void {
   try {
-    localStorage.setItem(COLVIS_KEY, JSON.stringify({ showValue: ui.showValue, showRef: ui.showRef, merged: ui.merged }));
+    localStorage.setItem(COLVIS_KEY, JSON.stringify({ showValue: ui.showValue, showRef: ui.showRef, merged: ui.merged, showBalance: ui.showBalance }));
   } catch { /* ignore */ }
 }
 const ui: CsvTabState = { sortKey: 'date', sortDir: -1, page: 0, pickerOpen: false, pageSize: loadPageSize(), ...loadColVis() };
+let cashToolsOpen: boolean | null = null;
+let accountBalancesOpen: boolean | null = null;
 
 // ---- resizable columns ----
-type ColKey = 'date' | 'value' | 'ref' | 'text' | 'cat' | 'credit' | 'debit' | 'amount';
+type ColKey = 'date' | 'value' | 'ref' | 'text' | 'cat' | 'credit' | 'debit' | 'amount' | 'balance';
 interface ColDef { key: ColKey; label: string; /** original German header in the CSV files */ de?: string; def: number; sort?: SortKey; num?: boolean }
 const COLS: ColDef[] = [
   { key: 'date', label: 'Booking date', de: 'Buchungsdatum', def: 110, sort: 'date', num: true },
@@ -68,15 +75,17 @@ const COLS: ColDef[] = [
 ];
 /** virtual display column that replaces Credit + Debit when the amounts are merged */
 const AMOUNT_COL: ColDef = { key: 'amount', label: 'Amount', def: 130, sort: 'amount', num: true };
+const BALANCE_COL: ColDef = { key: 'balance', label: 'Total balance', def: 150, num: true };
+const PRINT_COLS: ColDef[] = [...COLS, BALANCE_COL];
 /** every key that can own a width — the print dialog still offers only the seven real CSV columns */
-const ALL_COLS: ColDef[] = [...COLS, AMOUNT_COL];
+const ALL_COLS: ColDef[] = [...COLS, AMOUNT_COL, BALANCE_COL];
 const MIN_COL_W = 64;
 const COLW_KEY = 'banking.csvColW';
 /** cell classes for clipping long content with an ellipsis */
 const CELL = 'overflow-hidden text-ellipsis';
 
 /** the columns currently shown, in table order */
-function shownCols(): ColDef[] {
+function shownCols(balanceLabel = BALANCE_COL.label): ColDef[] {
   return [
     COLS[0],
     ...(ui.showValue ? [COLS[1]] : []),
@@ -84,6 +93,7 @@ function shownCols(): ColDef[] {
     COLS[3],
     COLS[4],
     ...(ui.merged ? [AMOUNT_COL] : [COLS[5], COLS[6]]),
+    ...(ui.showBalance ? [{ ...BALANCE_COL, label: balanceLabel }] : []),
   ];
 }
 
@@ -141,7 +151,7 @@ function defaultPrintOpts(): CsvPrintOpts {
 }
 function normalizeCols(raw: unknown): ColKey[] | null {
   if (!Array.isArray(raw)) return null;
-  const cols = raw.filter((k): k is ColKey => typeof k === 'string' && COLS.some((c) => c.key === k));
+  const cols = raw.filter((k): k is ColKey => typeof k === 'string' && PRINT_COLS.some((c) => c.key === k));
   return cols.length > 0 ? cols : null;
 }
 function loadPrintOpts(): CsvPrintOpts {
@@ -200,6 +210,37 @@ export function renderCsvTab(container: HTMLElement): void {
   clearColumnSelect(); // a re-render drops the marked cells; remove the leftover copy buffer too
   clear(container);
   const f: CsvFilter = state.csvFilter;
+  const allTxs = allTransactionRows(state.txs, state.cashEntries);
+  const bankAccounts = groupBankAccounts(state.txs);
+  const accountOpenings = loadAccountOpeningBalances();
+  const transactionBalances = calculateAccountBalances(state.txs, accountOpenings);
+  const accountEndings = calculatedAccountEndings(bankAccounts, accountOpenings);
+  const cashBalances = calculateCashBalances(state.txs, state.cashEntries, state.settings, cashOpeningBalance());
+  const sourceFilter: CsvFilter['source'] = f.source === 'cash' || f.source === 'bank' ? f.source : 'both';
+  f.source = sourceFilter;
+  // All mode: one combined cash + bank total after each row (transfers net to zero)
+  const combinedBalances = calculateCombinedBalances(state.txs, state.cashEntries, state.settings, cashOpeningBalance(), accountOpenings);
+  const hasUnanchored = bankAccounts.some((a) => !accountOpenings[a.key]);
+  const balanceLabel = sourceFilter === 'cash' ? 'Cash balance' : sourceFilter === 'bank' ? 'Bank balance' : 'Total balance';
+  const displayPrintCols = PRINT_COLS.map((column) => column.key === 'balance' ? { ...column, label: balanceLabel } : column);
+  const usesCashBalance = (tx: Tx): boolean => sourceFilter === 'cash'
+    || Boolean(tx.cashEntryId)
+    || (sourceFilter === 'both' && isCashTransfer(tx, state.settings));
+  const balanceFor = (tx: Tx): number | undefined => sourceFilter === 'both'
+    ? combinedBalances.get(tx.id)
+    : usesCashBalance(tx) ? cashBalances.get(tx.id) : transactionBalances.get(tx.id);
+  const balanceTitleFor = (tx: Tx): string => {
+    if (sourceFilter === 'both') return hasUnanchored
+      ? 'Combined cash + bank balance after this row; cash transfers only move money between wallet and bank. Accounts without an opening balance contribute their net movement.'
+      : 'Combined cash + bank balance after this row; cash transfers only move money between wallet and bank.';
+    if (usesCashBalance(tx)) return tx.cashEntryId
+      ? 'Cash balance after this cash entry; includes the opening cash balance and all wallet movements.'
+      : 'Cash balance after this bank cash transfer; includes the opening cash balance and all wallet movements.';
+    const opening = accountOpenings[bankAccountKey(tx)];
+    return !opening
+      ? 'Net movement since the first imported transaction; set an opening balance for the actual bank balance'
+      : `Balance after this transaction; opening balance date ${dmy(opening.date)}`;
+  };
 
   // ---- files row ----
   const { input: fileInput, button: addCsvBtn } = csvPicker();
@@ -221,10 +262,87 @@ export function renderCsvTab(container: HTMLElement): void {
   );
   container.appendChild(filesBox);
 
-  // nothing stored yet: an info box that opens the file picker on click (no table to filter)
-  if (state.files.length === 0) {
-    container.appendChild(noCsvCard());
-    return;
+  // Keep cash management on the unified Transactions page. The cash-only ledger
+  // remains available in this expandable section, while all bank and cash rows
+  // together are shown in the shared table below.
+  const noCsvLoaded = state.files.length === 0;
+  if (noCsvLoaded) container.appendChild(noCsvCard());
+  const cashToolsBody = h('div', { class: 'mt-2' });
+  renderCash(cashToolsBody);
+  const cashTools = h('details', {
+    class: cx(C.card, 'mb-3 px-3.5 py-2.5'),
+    attrs: { open: (cashToolsOpen ?? noCsvLoaded) ? 'open' : null },
+  },
+    h('summary', { class: 'cursor-pointer select-none text-sm font-semibold' },
+      Ic(Banknote, 'mr-1.5 inline size-4'), 'Cash balance & entries'),
+    cashToolsBody);
+  cashTools.addEventListener('toggle', () => { cashToolsOpen = cashTools.open; });
+  container.appendChild(cashTools);
+
+  // With neither bank nor cash activity, the cash section still permits setup
+  // and entry creation; the transaction table itself has nothing to show yet.
+  if (noCsvLoaded && state.cashEntries.length === 0) return;
+
+  if (bankAccounts.length > 0) {
+    const accountCards = bankAccounts.map((account) => {
+      const opening = accountOpenings[account.key];
+      const dated = account.txs.map((tx) => tx.bookingDate || tx.valueDate).filter(Boolean).sort();
+      const firstDate = dated[0] ?? new Date().toISOString().slice(0, 10);
+      const dateInput = h('input', { class: C.input, attrs: { type: 'date', value: opening?.date ?? firstDate, 'aria-label': `opening balance date for ${account.label}` } }) as HTMLInputElement;
+      const amountInput = h('input', { class: cx(C.input, 'w-36'), attrs: { type: 'number', step: '0.01', placeholder: 'Opening balance', value: opening ? String(opening.amount) : '', 'aria-label': `opening balance for ${account.label}` } }) as HTMLInputElement;
+      const ending = accountEndings.get(account.key);
+      const result = opening
+        ? ending
+          ? `Calculated balance after ${dmy(ending.date)}: ${num2(ending.amount)}`
+          : `Opening balance as of ${dmy(opening.date)}: ${num2(opening.amount)} (no dated transactions loaded)`
+        : ending
+          ? `Net movement since first imported transaction (not actual balance): ${num2(ending.amount)}`
+          : 'No dated transactions available to calculate movement.';
+      const form = h('form', { class: 'flex flex-wrap items-end gap-2.5 py-2.5' },
+        h('div', { class: 'min-w-[170px] flex-1' },
+          h('div', { class: 'text-[13px] font-semibold', text: account.label }),
+          h('div', { class: cx(C.muted, 'mt-0.5 text-xs'), text: result })),
+        h('label', { class: 'flex flex-col gap-1' }, h('span', { class: C.label, text: 'Balance before date' }), dateInput),
+        h('label', { class: 'flex flex-col gap-1' }, h('span', { class: C.label, text: 'Opening balance' }), amountInput),
+        h('button', { class: C.btn, attrs: { type: 'submit' }, text: opening ? 'Save' : 'Set balance' }),
+        opening ? h('button', { class: C.linkDanger, attrs: { type: 'button' }, text: 'Clear', onclick: () => {
+          removeAccountOpeningBalance(account.key);
+          toast(`Opening balance cleared for ${account.label}`);
+          emit();
+        } }) : null);
+      form.onsubmit = (event) => {
+        event.preventDefault();
+        const amount = Number(amountInput.value);
+        if (!dateInput.value || amountInput.value.trim() === '' || !Number.isFinite(amount)) {
+          toast('Enter a date and a valid opening balance', 'err');
+          return;
+        }
+        try {
+          saveAccountOpeningBalance(account.key, { date: dateInput.value, amount });
+          // Showing the new balance is part of setting an opening balance; the
+          // column may have been explicitly hidden before the account was configured.
+          ui.showBalance = true;
+          saveColVis();
+          toast(`Opening balance saved for ${account.label}`);
+          emit();
+        } catch (error) { toast(`Could not save opening balance: ${String(error)}`, 'err'); }
+      };
+      return form;
+    });
+    const accountBalances = h('details', {
+      class: cx(C.card, 'mb-3 px-3.5 py-3'),
+      attrs: { open: (accountBalancesOpen ?? true) ? 'open' : null },
+    },
+    h('summary', { class: 'cursor-pointer select-none text-[14px] font-semibold' },
+      Ic(Banknote, 'mr-1.5 inline size-4'), 'Account balances'),
+    h('div', { class: 'mt-2' },
+      h('p', { class: cx(C.muted, 'text-xs') }, 'For an actual bank balance, enter the account balance immediately before transactions booked on the selected date. Without an opening balance, the column still shows net movement from zero at the first imported transaction—not the actual bank balance.'),
+      ...accountCards,
+      bankAccounts.some((account) => account.key === 'account:unknown')
+        ? h('p', { class: cx(C.chipWarn, 'mt-1 inline-block'), text: 'These CSV rows do not include an account identifier; they are grouped together as one unidentified account.' })
+        : null));
+    accountBalances.addEventListener('toggle', () => { accountBalancesOpen = accountBalances.open; });
+    container.appendChild(accountBalances);
   }
 
   // ---- filter bar: row 1 = search + rules + direction, row 2 = labeled groups ----
@@ -280,6 +398,13 @@ export function renderCsvTab(container: HTMLElement): void {
   ) as HTMLSelectElement;
   dirSel.value = f.direction;
   dirSel.onchange = () => { f.direction = dirSel.value as CsvFilter['direction']; ui.page = 0; refresh(); };
+
+  // Cash | Bank | All segment (replaces the old Source dropdown — same f.source values)
+  const sourceBtns = sourceGroup('csvsrc', sourceFilter, {
+    cash: 'show manual entries plus imported rows marked as cash movements',
+    bank: 'show imported bank rows only',
+    all: 'show every row — bank transactions and cash activity (default)',
+  }, (v) => { f.source = v; ui.page = 0; refresh(); });
 
   // ---- column visibility toggles (persisted; defaults: value date off, order no. off, merged on) ----
   const colTog = (fk: string, label: string, title: string, on: boolean, set: (v: boolean) => void): HTMLElement => {
@@ -339,21 +464,26 @@ export function renderCsvTab(container: HTMLElement): void {
     h('div', { class: 'grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] items-start gap-x-5 gap-y-3.5' },
       field('Amount', Banknote, minIn, '–', maxIn),
       csvDateField,
+      field('Source', Banknote, ...sourceBtns),
       field('Categories', Tags, catPicker),
       field('Columns', ListFilter,
         colTog('csv-col-value', 'Value date', 'show the Value date (Valuta) column', ui.showValue, (v) => { ui.showValue = v; }),
         colTog('csv-col-ref', 'Order no.', 'show the Order no. (Auftragsnummer) column', ui.showRef, (v) => { ui.showRef = v; }),
         colTog('csv-col-merge', 'Merge amounts', 'one signed Amount column instead of separate Credit and Debit columns', ui.merged, (v) => { ui.merged = v; }),
+        colTog('csv-col-balance', balanceLabel, sourceFilter === 'both'
+          ? 'show the combined cash + bank balance after each row'
+          : `show the calculated ${sourceFilter} balance after each row`, ui.showBalance, (v) => { ui.showBalance = v; }),
         resetBtn),
     ),
   ));
 
   // ---- table ----
   const categoryOf = (tx: Tx) => matchTx(tx, state.settings);
-  const filtered = filterTxs(state.txs, f, categoryOf);
+  const filtered = filterTxs(allTxs, f, categoryOf,
+    (tx, source) => matchesTransactionSource(tx, source, state.settings));
   filtered.sort((a, b) => {
     const dir = ui.sortDir;
-    if (ui.sortKey === 'date') return dir * (a.bookingDate.localeCompare(b.bookingDate) || a.ref.localeCompare(b.ref));
+    if (ui.sortKey === 'date') return dir * compareTransactionOrder(a, b);
     if (ui.sortKey === 'amount') return dir * (txAmount(a) - txAmount(b));
     return dir * a.text.localeCompare(b.text);
   });
@@ -375,7 +505,7 @@ export function renderCsvTab(container: HTMLElement): void {
   // trackpad or grab-drag anywhere on it.
   // border-separate (not collapse): with collapse, browsers drop a sticky cell's
   // border once it detaches from the grid — the 2px header rule would vanish.
-  const shown = shownCols();
+  const shown = shownCols(balanceLabel);
   const mkTable = (): { table: HTMLElement; colgroup: HTMLElement } => {
     const table = h('table', { class: 'border-separate border-spacing-0 text-xs cursor-grab', style: { tableLayout: 'fixed' } });
     const colgroup = h('colgroup');
@@ -401,6 +531,11 @@ export function renderCsvTab(container: HTMLElement): void {
         c.sort && 'cursor-pointer select-none hover:text-foreground',
         c.sort && ui.sortKey === c.sort && 'text-foreground'),
       title: c.key === 'amount' ? 'Credit and Debit merged into one signed column'
+        : c.key === 'balance' ? sourceFilter === 'cash'
+          ? 'Running wallet balance after each cash entry or marked bank cash transfer'
+          : sourceFilter === 'bank'
+            ? 'Bank account balance when an opening balance is set; otherwise net movement since the first imported transaction'
+            : 'Combined cash + bank total after each row; cash transfers leave it unchanged'
         : c.de ? `CSV column: ${c.de}` : 'assigned by the category rules (Categories tab)',
     });
     if (c.sort) {
@@ -444,19 +579,21 @@ export function renderCsvTab(container: HTMLElement): void {
         case 'text': {
           const td = h('td', { class: cx(C.td, CELL), title: t.text, text: '' });
           td.innerHTML = highlight(t.text, f.fuzzy ? '' : f.text, f.caseSensitive);
+          td.appendChild(h('span', { class: cx(C.badgeMuted, 'ml-1'), text: t.cashEntryId ? 'Cash' : isCashTransfer(t, state.settings) ? 'Cash transfer' : 'Bank' }));
           tr.appendChild(td);
           break;
         }
         case 'cat':
           tr.appendChild(h('td', { class: cx(C.td, CELL) }, (() => {
             const chipColor = categoryColor(catTag);
+            const cashMovement = state.settings.categories.find((cat) => cat.tag === catTag)?.cashMovement;
             return h('button', {
               // text color is picked from the category color, so pale fills never end up with white text
               class: 'max-w-full cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap border-0 px-2.5 py-0.5 text-[11px] font-medium transition-[filter] hover:brightness-110',
               style: { background: chipColor, color: readableOn(chipColor) },
-              title: `${catTag} · click to filter by this category (again to remove)`,
+              title: `${catTag}${cashMovement ? ` · cash ${cashMovement}` : ''} · click to filter by this category (again to remove)`,
               onclick: () => toggleCat(catTag),
-            }, catTag);
+            }, catTag, cashMovement ? h('span', { class: 'ml-1 text-[9px] font-bold uppercase', text: cashMovement === 'withdrawal' ? 'cash in' : 'cash out' }) : null);
           })()));
           break;
         case 'credit':
@@ -471,9 +608,21 @@ export function renderCsvTab(container: HTMLElement): void {
           tr.appendChild(h('td', { class: cx(C.td, CELL, C.num, t.credit > 0 && 'text-success', t.debit > 0 && 'text-danger'), text: v }));
           break;
         }
+        case 'balance': {
+          const value = balanceFor(t);
+          const isCashBalance = usesCashBalance(t);
+          const opening = isCashBalance ? undefined : accountOpenings[bankAccountKey(t)];
+          // in All mode the Δ marks a combined total that includes net-movement
+          // accounts; in Bank mode it marks the unanchored account of that row
+          const showDelta = sourceFilter === 'both' ? hasUnanchored : !isCashBalance && !opening;
+          const title = balanceTitleFor(t);
+          tr.appendChild(h('td', { class: cx(C.td, CELL, C.num, value !== undefined && value < 0 && 'text-danger', value === undefined && C.muted), title },
+            value === undefined ? '—' : h('span', {}, showDelta ? h('span', { class: C.muted, text: 'Δ ' }) : null, num2(value))));
+          break;
+        }
       }
     }
-    tr.title = `IBAN ${t.ibanDisplay || t.iban} · ${t.file} row ${t.row}`;
+    tr.title = t.cashEntryId ? 'Manually entered cash transaction' : `IBAN ${t.ibanDisplay || t.iban} · ${t.file} row ${t.row}`;
     tbody.appendChild(tr);
   }
   body.table.appendChild(tbody);
@@ -521,7 +670,7 @@ export function renderCsvTab(container: HTMLElement): void {
   const shownFrom = filtered.length === 0 ? 0 : start + 1;
   const shownTo = Math.min(start + size, filtered.length);
   container.appendChild(h('div', { class: 'mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-[13px]' },
-    h('span', { class: C.muted, text: `${num0(filtered.length)} of ${num0(state.txs.length)} transactions · showing ${num0(shownFrom)}–${num0(shownTo)}` }),
+    h('span', { class: C.muted, text: `${num0(filtered.length)} of ${num0(allTxs.length)} transactions · showing ${num0(shownFrom)}–${num0(shownTo)}` }),
     h('span', {}, 'Σ in ', h('b', { class: 'text-success', text: num2(sumIn) }), ' · ', 'Σ out ', h('b', { class: 'text-danger', text: num2(sumOut) })),
     h('div', { class: 'ml-auto flex flex-wrap items-center gap-2' },
       h('span', { class: C.label, text: 'per page' }), sizeSel,
@@ -551,6 +700,10 @@ export function renderCsvTab(container: HTMLElement): void {
         case 'credit': return t.credit > 0 ? exportAmount(t.credit) : '';
         case 'debit': return t.debit > 0 ? exportAmount(-t.debit) : '';
         case 'amount': return t.credit > 0 ? exportAmount(t.credit) : t.debit > 0 ? exportAmount(-t.debit) : '';
+        case 'balance': {
+          const value = balanceFor(t);
+          return value === undefined ? '' : exportAmount(value);
+        }
       }
     };
     const rows: string[][] = [shown.map((c) => c.label)];
@@ -578,6 +731,7 @@ export function renderCsvTab(container: HTMLElement): void {
       f.minAmount || f.maxAmount ? `Amount: ${f.minAmount || '0'} – ${f.maxAmount || 'open'}` : null,
       f.dateFrom || f.dateTo ? `Date range: ${f.dateFrom ? dmy(f.dateFrom) : '…'} → ${f.dateTo ? dmy(f.dateTo) : '…'}` : null,
       f.direction !== 'all' ? `Direction: ${f.direction}` : null,
+      sourceFilter !== 'both' ? `Source: ${sourceFilter === 'cash' ? 'Cash activity' : 'Bank transactions'}` : null,
       f.selectedCats.length > 0 ? `Categories: ${f.selectedCats.join(', ')}` : null,
     ].filter((s): s is string => s !== null);
     const pill = (t: string): HTMLElement => h('span', { class: 'border border-border bg-subtle px-2 py-0.5 text-xs', text: t });
@@ -602,8 +756,12 @@ export function renderCsvTab(container: HTMLElement): void {
       if (!on) ch.cb.checked = false;
       ch.el.classList.toggle('opacity-50', !on);
     };
-    const checks = COLS.map((c) => printCheck(c.label, printOpts.cols.includes(c.key), c.de ? `CSV column: ${c.de}` : 'assigned by the category rules (Categories tab)'));
-    const [dateChk, valueChk, refChk, textChk, catChk, creditChk, debitChk] = checks;
+    const checks = displayPrintCols.map((c) => printCheck(c.label, printOpts.cols.includes(c.key), c.key === 'balance'
+      ? sourceFilter === 'cash' ? 'cash balance after each wallet movement'
+        : sourceFilter === 'bank' ? 'bank balance after each imported transaction'
+          : 'combined cash + bank total after each row'
+      : c.de ? `CSV column: ${c.de}` : 'assigned by the category rules (Categories tab)'));
+    const [dateChk, valueChk, refChk, textChk, catChk, creditChk, debitChk, balanceChk] = checks;
     const mergedChk = printCheck('Merged', printOpts.merged, 'one Amount column instead of Credit + Debit: signed + / −');
     const boldIncomeChk = printCheck('Bold income', printOpts.boldIncome, 'print income (positive amounts) in bold');
     const totalsChk = printCheck('Show totals row', printOpts.totals, 'the “total” row with the Σ amounts at the end of the table');
@@ -631,7 +789,7 @@ export function renderCsvTab(container: HTMLElement): void {
     syncAmounts();
     syncMerges();
     const controls = h('div', { class: 'flex flex-col gap-2' },
-      field('Columns', FileSpreadsheet, dateChk.el, valueChk.el, refChk.el, textChk.el, catChk.el),
+      field('Columns', FileSpreadsheet, dateChk.el, valueChk.el, refChk.el, textChk.el, catChk.el, balanceChk.el),
       field('Amounts', Banknote, creditChk.el, debitChk.el, mergedChk.el, boldIncomeChk.el, totalsChk.el),
       field('Description', Tags, catMergeChk.el),
       field('Dates', CalendarRange, datesMergeChk.el),
@@ -658,11 +816,15 @@ export function renderCsvTab(container: HTMLElement): void {
           case 'credit': return t.credit > 0 ? num2(t.credit) : '';
           case 'debit': return t.debit > 0 ? `−${num2(t.debit)}` : '';
           case 'amount': return mergedAmountCell(t.credit, t.debit);
+          case 'balance': {
+            const value = balanceFor(t);
+            return value === undefined ? '' : num2(value);
+          }
         }
       };
       // columns in display order, honoring the merge options
       const spec: Array<{ col: CsvPrintColumn; cell: (t: Tx) => string }> = [];
-      COLS.forEach((c, i) => {
+      displayPrintCols.forEach((c, i) => {
         if (!checks[i].cb.checked) return;
         if (c.key === 'credit' || c.key === 'debit') return; // handled by the Amounts row
         if (c.key === 'cat' && catDesc) return; // folded into Description
@@ -710,7 +872,7 @@ export function renderCsvTab(container: HTMLElement): void {
       }
       const style = font.get();
       printOpts = {
-        cols: spec.map((s) => s.col.key).filter((k): k is ColKey => COLS.some((c) => c.key === k)),
+        cols: spec.map((s) => s.col.key).filter((k): k is ColKey => PRINT_COLS.some((c) => c.key === k)),
         merged,
         catDesc,
         datesMerged,
@@ -730,6 +892,7 @@ export function renderCsvTab(container: HTMLElement): void {
         f.minAmount || f.maxAmount ? `Amount: ${f.minAmount || '0'} – ${f.maxAmount || 'open'}` : null,
         f.dateFrom || f.dateTo ? `Date range: ${f.dateFrom ? dmy(f.dateFrom) : '…'} → ${f.dateTo ? dmy(f.dateTo) : '…'}` : null,
         f.direction !== 'all' ? `Direction: ${f.direction}` : null,
+        sourceFilter !== 'both' ? `Source: ${sourceFilter === 'cash' ? 'Cash activity' : 'Bank transactions'}` : null,
         f.selectedCats.length > 0 ? `Categories: ${f.selectedCats.join(', ')}` : null,
       ].filter((s): s is string => s !== null);
       printHtml(buildCsvPrintDoc({

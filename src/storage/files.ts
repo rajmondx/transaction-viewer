@@ -1,4 +1,4 @@
-import type { Mapper } from '../types';
+import type { CashEntry, Mapper } from '../types';
 
 /**
  * Uploaded CSV persistence without a server: raw file contents live in
@@ -7,8 +7,9 @@ import type { Mapper } from '../types';
  */
 
 const DB_NAME = 'banking';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE = 'csv_files';
+const CASH_STORE = 'cash_entries';
 
 export interface StoredCsv {
   name: string;
@@ -27,6 +28,7 @@ function openDb(): Promise<IDBDatabase> {
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'name' });
+      if (!db.objectStoreNames.contains(CASH_STORE)) db.createObjectStore(CASH_STORE, { keyPath: 'id' });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error ?? new Error('could not open IndexedDB'));
@@ -81,4 +83,46 @@ export async function replaceCsvFiles(files: StoredCsv[]): Promise<void> {
   } finally {
     db.close();
   }
+}
+
+export async function listCashEntries(): Promise<CashEntry[]> {
+  const all = await openDb().then((db) => new Promise<CashEntry[]>((resolve, reject) => {
+    const req = db.transaction(CASH_STORE, 'readonly').objectStore(CASH_STORE).getAll();
+    req.onsuccess = () => { resolve(req.result as CashEntry[]); db.close(); };
+    req.onerror = () => { reject(req.error ?? new Error('Could not read cash entries')); db.close(); };
+  }));
+  return all.sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
+}
+
+export async function putCashEntry(entry: CashEntry): Promise<void> {
+  await openDb().then((db) => new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(CASH_STORE, 'readwrite');
+    tx.objectStore(CASH_STORE).put(entry);
+    tx.oncomplete = () => { resolve(); db.close(); };
+    tx.onerror = () => { reject(tx.error ?? new Error('Could not save cash entry')); db.close(); };
+  }));
+}
+
+export async function deleteCashEntry(id: string): Promise<void> {
+  await openDb().then((db) => new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(CASH_STORE, 'readwrite');
+    tx.objectStore(CASH_STORE).delete(id);
+    tx.oncomplete = () => { resolve(); db.close(); };
+    tx.onerror = () => { reject(tx.error ?? new Error('Could not delete cash entry')); db.close(); };
+  }));
+}
+
+export async function replaceCashEntries(entries: CashEntry[]): Promise<void> {
+  const db = await openDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(CASH_STORE, 'readwrite');
+      const store = tx.objectStore(CASH_STORE);
+      store.clear();
+      entries.forEach((entry) => store.put(entry));
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error('Could not replace cash entries'));
+      tx.onabort = () => reject(tx.error ?? new Error('Replacing cash entries was aborted'));
+    });
+  } finally { db.close(); }
 }

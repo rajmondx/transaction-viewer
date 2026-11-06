@@ -1,11 +1,13 @@
-import type { CsvFileInfo, Mapper, Settings, SettingsFileInfo, Tx } from './types';
+import type { CashEntry, CsvFileInfo, Mapper, Settings, SettingsFileInfo, Tx } from './types';
 import { defaultCsvFilter, type CsvFilter } from './ui/search';
 import { emptySettings } from './categories/schema';
 import * as sstore from './storage/settings';
 import { allMappers } from './storage/mappers';
-import { deleteCsvFile, listCsvFiles, putCsvFile, type StoredCsv } from './storage/files';
+import { deleteCashEntry, deleteCsvFile, listCashEntries, listCsvFiles, putCashEntry, putCsvFile, replaceCashEntries, type StoredCsv } from './storage/files';
 import { ingestFiles, type IngestResult } from './csv/dedupe';
 import { detectBestMapper, parseCsvHeaders } from './csv/schemas';
+import { DEMO_FILE_NAME } from './seed/demoCsv';
+import { withoutDemoCashEntries } from './seed/demoCash';
 import { toast } from './ui/util';
 
 /**
@@ -22,6 +24,15 @@ export interface SpendingView {
   measure: 'expense' | 'income' | 'net';
   dateFrom: string;
   dateTo: string;
+  /** Limit the Spending aggregates and drill-downs to one transaction source
+   *  (Cash | Bank | All toolbar buttons). 'cash' = manually recorded entries
+   *  only, 'bank' = imported bank rows only, 'both' = everything. Same values
+   *  as the CSV filter's source. */
+  source: 'cash' | 'bank' | 'both';
+  /** Cash-movement category tags the user chose to count in Spending totals.
+   *  Cash transfers stay visible in the table but are excluded by default —
+   *  the money moves into the wallet, it is only spent when recorded there. */
+  cashInSpending: string[];
   avgMode: AvgMode;
   /** Share chart: also show each sub-category in a block under its top-level category */
   shareSubs: boolean;
@@ -39,7 +50,13 @@ export function loadSpendingView(settingsName: string): SpendingView {
   try {
     const raw = localStorage.getItem(lsKey(settingsName));
     if (raw) {
-      const v = { ...defaultSpendingView(), ...(JSON.parse(raw) as SpendingView) };
+      const parsed = JSON.parse(raw) as SpendingView & { cashOnly?: boolean };
+      const v: SpendingView & { cashOnly?: boolean } = { ...defaultSpendingView(), ...parsed };
+      if (!Array.isArray(v.cashInSpending)) v.cashInSpending = [];
+      // older builds stored a "Cash Only" checkbox instead of the Cash | Bank | All group
+      if (parsed.source === undefined && parsed.cashOnly !== undefined) v.source = parsed.cashOnly ? 'cash' : 'both';
+      if (v.source !== 'cash' && v.source !== 'bank' && v.source !== 'both') v.source = 'both';
+      delete v.cashOnly;
       // older builds stored one boolean freezing all three static columns at once
       if (typeof (v.pinStatic as unknown) === 'boolean') {
         const b = v.pinStatic as unknown as boolean;
@@ -52,7 +69,7 @@ export function loadSpendingView(settingsName: string): SpendingView {
 }
 
 export function defaultSpendingView(): SpendingView {
-  return { hiddenCats: [], hiddenMonths: [], measure: 'expense', dateFrom: '', dateTo: '', avgMode: 'off', shareSubs: false };
+  return { hiddenCats: [], hiddenMonths: [], measure: 'expense', dateFrom: '', dateTo: '', source: 'both', cashInSpending: [], avgMode: 'off', shareSubs: false };
 }
 
 export function saveSpendingView(name: string, v: SpendingView): void {
@@ -61,6 +78,7 @@ export function saveSpendingView(name: string, v: SpendingView): void {
 
 export interface AppState {
   txs: Tx[];
+  cashEntries: CashEntry[];
   files: CsvFileInfo[];
   /** raw contents + mapper snapshot of all stored csv files (kept in memory for remap + previews) */
   loaded: StoredCsv[];
@@ -74,6 +92,7 @@ export interface AppState {
 
 export const state: AppState = {
   txs: [],
+  cashEntries: [],
   files: [],
   loaded: [],
   settingsFiles: [],
@@ -159,8 +178,26 @@ export async function addUploads(items: Array<{ name: string; content: string; m
 
 export async function removeFile(name: string): Promise<void> {
   await deleteCsvFile(name);
+  if (name === DEMO_FILE_NAME) {
+    const cashEntries = await listCashEntries();
+    const remaining = withoutDemoCashEntries(cashEntries);
+    if (remaining.length !== cashEntries.length) await replaceCashEntries(remaining);
+    state.cashEntries = remaining;
+  }
   state.loaded = await listCsvFiles();
   reingestAll(false);
+  emit();
+}
+
+export async function saveCashEntry(entry: CashEntry): Promise<void> {
+  await putCashEntry(entry);
+  state.cashEntries = await listCashEntries();
+  emit();
+}
+
+export async function removeCashEntry(id: string): Promise<void> {
+  await deleteCashEntry(id);
+  state.cashEntries = await listCashEntries();
   emit();
 }
 
@@ -184,6 +221,7 @@ export async function bootstrap(): Promise<void> {
   loadActiveSettings();
   try {
     state.loaded = await listCsvFiles();
+    state.cashEntries = await listCashEntries();
     await migrateStoredFiles();
   } catch {
     state.loaded = []; // no IndexedDB (e.g. private mode): session-only uploads

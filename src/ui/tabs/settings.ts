@@ -498,6 +498,7 @@ function editor(d: Settings, report: ConflictReport): HTMLElement {
         dateFrom: null,
         dateTo: null,
         enabled: true,
+        cashMovement: null,
       });
       markDirty();
       emit();
@@ -587,6 +588,14 @@ function categoryCard(
   enabledCb.checked = cat.enabled;
   enabledCb.onchange = () => { cat.enabled = enabledCb.checked; markDirty(); emit(); };
   const enabled = h('label', { class: cx(C.chipBase, C.chipSm, cat.enabled ? C.chipOn : C.chipOff) }, enabledCb, 'enabled');
+
+  const cashMovementSel = h('select', { class: cx(C.input, 'max-w-[190px]'), attrs: { title: 'cash transfers update the cash balance but are excluded from Spending totals by default — on the Spending page their row keeps a badge that can still count them' } },
+    h('option', { text: 'Not a cash transfer', attrs: { value: '' } }),
+    h('option', { text: 'Cash withdrawal', attrs: { value: 'withdrawal' } }),
+    h('option', { text: 'Cash deposit', attrs: { value: 'deposit' } }),
+  ) as HTMLSelectElement;
+  cashMovementSel.value = cat.cashMovement ?? '';
+  cashMovementSel.onchange = () => { cat.cashMovement = cashMovementSel.value === 'withdrawal' || cashMovementSel.value === 'deposit' ? cashMovementSel.value : null; markDirty(); emit(); };
 
   const previewBadge = h('span', {
     class: 'bg-muted px-2.5 py-1 text-[11.5px] text-muted-foreground',
@@ -683,7 +692,7 @@ function categoryCard(
       h('span', { class: 'grid size-[22px] shrink-0 place-items-center bg-muted text-[11px] font-bold text-muted-foreground', title: 'priority (order)', text: String(i + 1) }),
       color, tag,
       h('span', { class: C.label, text: 'under' }), fatherSel,
-      enabled,
+      enabled, h('span', { class: C.label, text: 'Cash movement' }), cashMovementSel,
       previewBadge,
       shadowChip,
       h('span', { class: 'flex-1' }),

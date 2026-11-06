@@ -25,7 +25,7 @@ async function downloadBackup(): Promise<void> {
   try {
     const backup = await createBackup();
     downloadText(`transaction-viewer-backup-${fileDate()}.json`, JSON.stringify(backup, null, 2));
-    toast(`Backup exported (${backup.data.csvFiles.length} CSV files)`);
+    toast(`Backup exported (${backup.data.csvFiles.length} CSV files, ${backup.data.cashEntries.length} cash entries)`);
   } catch (error) {
     toast(`Backup export failed: ${String(error)}`, 'err');
   }
@@ -46,9 +46,9 @@ export function openDbModal(): void {
       h('h3', { class: 'flex items-center gap-2 text-[15px] font-semibold' }, Ic(Database, 'size-4'), 'Database backup'),
       h('button', { class: cx(C.btn, 'ml-auto px-2 py-1'), onclick: closeModal, title: 'Close (Esc)' }, Ic(X, 'size-3.5'))),
     h('p', { class: cx(C.muted, 'mb-3 text-[12.5px]') },
-      'Export a complete backup of your transactions, CSV files, categories, settings, schemas, and saved preferences. Backups stay on your device; the JSON file contains sensitive financial data.'),
+      'Export a complete backup of your transactions, cash entries, CSV files, categories, settings, schemas, and saved preferences. Backups stay on your device; the JSON file contains sensitive financial data.'),
     h('div', { class: 'mb-4 grid grid-cols-2 gap-x-4 gap-y-1 bg-muted/40 p-3 text-[12px] sm:grid-cols-4' },
-      h('span', { class: C.muted, text: 'Transactions' }), h('strong', { text: state.txs.length.toLocaleString() }),
+      h('span', { class: C.muted, text: 'Transactions' }), h('strong', { text: (state.txs.length + state.cashEntries.length).toLocaleString() }),
       h('span', { class: C.muted, text: 'CSV files' }), h('strong', { text: state.loaded.length.toLocaleString() }),
       h('span', { class: C.muted, text: 'Categories' }), h('strong', { text: state.settings.categories.length.toLocaleString() }),
       h('span', { class: C.muted, text: 'Settings bundles' }), h('strong', { text: state.settingsFiles.length.toLocaleString() })),
@@ -101,7 +101,7 @@ export function openBackupRestoreModal(fileName: string, input: unknown): Promis
         h('h3', { class: 'flex items-center gap-2 text-[15px] font-semibold' }, Ic(TriangleAlert, 'size-4'), 'Replace current database?'),
         h('button', { class: cx(C.btn, 'ml-auto px-2 py-1'), onclick: () => finish(false), title: 'Close (Esc)' }, Ic(X, 'size-3.5'))),
       h('p', { class: 'mb-3 text-sm' }, 'Restoring this backup replaces all current transactions, CSV files, categories, settings, schemas, and saved preferences. Data will not be merged.'),
-      h('p', { class: cx(C.muted, 'mb-3 text-[12px]') }, `Backup: ${fileName} · ${backup.data.csvFiles.length} CSV files${backup.exportedAt ? ` · exported ${new Date(backup.exportedAt).toLocaleString()}` : ''}`),
+      h('p', { class: cx(C.muted, 'mb-3 text-[12px]') }, `Backup: ${fileName} · ${backup.data.csvFiles.length} CSV files · ${backup.data.cashEntries.length} cash entries${backup.exportedAt ? ` · exported ${new Date(backup.exportedAt).toLocaleString()}` : ''}`),
       h('div', { class: 'mb-4 flex items-start gap-2 bg-warning/10 p-3 text-[12px] text-warning' }, Ic(TriangleAlert, 'mt-0.5 size-4 shrink-0'), 'If you need the current data, cancel and export a backup first.'),
       h('div', { class: 'flex flex-wrap items-center gap-2' },
         restoreBtn,

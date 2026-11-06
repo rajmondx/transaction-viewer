@@ -617,13 +617,26 @@
       "tag_father": "Cash & Transfers",
       "color": "#7fa4fb",
       "iban": [],
+      "cash_movement": "withdrawal",
       "search_tag": [
         "bancomat",
         "atm",
         "bargeld",
-        "cash",
         "auszahlung",
         "withdrawal"
+      ]
+    },
+    {
+      "tag": "Cash Deposits",
+      "tag_father": "Cash & Transfers",
+      "color": "#8fb1fc",
+      "iban": [],
+      "cash_movement": "deposit",
+      "search_tag": [
+        "cash deposit",
+        "deposit cash",
+        "bargeldeinzahlung",
+        "einzahlung bargeld"
       ]
     },
     {

@@ -4,6 +4,7 @@ import { parseWithMapper } from '../src/csv/parse';
 import { matchTx, UNCAT } from '../src/categories/engine';
 import { seedSettings } from '../src/categories/schema';
 import { DEMO_FILE_NAME, demoCsv } from '../src/seed/demoCsv';
+import { configureDemoCashCategories, DEMO_CASH_ENTRY_PREFIX, demoCashEntries, mergeDemoCashEntries, withoutDemoCashEntries } from '../src/seed/demoCash';
 
 /** the demo statement is what a first-time visitor sees — it must parse and categorize */
 describe('demoCsv', () => {
@@ -38,6 +39,46 @@ describe('demoCsv', () => {
     const back = txs.find((t) => t.ref === one.ref && t.iban !== one.iban);
     expect(back).toBeDefined();
     expect(back!.credit > 0).toBe(true);
+  });
+
+  it('includes bank cash withdrawals and deposits marked as wallet movements', () => {
+    const withdrawal = txs.find((tx) => tx.text.includes('ATM cash withdrawal'))!;
+    const deposit = txs.find((tx) => tx.text === 'Cash deposit at branch Zurich')!;
+    expect(matchTx(withdrawal, settings)).toBe('Cash Withdrawals');
+    expect(matchTx(deposit, settings)).toBe('Cash Deposits');
+    expect(settings.categories.find((category) => category.tag === matchTx(withdrawal, settings))?.cashMovement).toBe('withdrawal');
+    expect(settings.categories.find((category) => category.tag === matchTx(deposit, settings))?.cashMovement).toBe('deposit');
+  });
+
+  it('includes deterministic categorized manual cash expenses', () => {
+    const entries = demoCashEntries(new Date('2026-10-31T12:00:00Z'));
+    expect(entries).toHaveLength(3);
+    expect(entries.every((entry) => entry.id.startsWith(DEMO_CASH_ENTRY_PREFIX) && entry.kind === 'expense')).toBe(true);
+    expect(entries.map((entry) => entry.category)).toEqual(['Groceries', 'Dining Out', 'Groceries']);
+    expect(entries.map((entry) => entry.date)).toEqual(['2026-10-20', '2026-09-15', '2026-07-16']);
+  });
+
+  it('replaces only demo cash entries and preserves user entries', () => {
+    const userEntry = { id: 'user-cash-1', date: '2026-10-20', kind: 'expense' as const, amount: 4, category: 'Food', note: 'Lunch' };
+    const staleDemoEntry = { ...userEntry, id: `${DEMO_CASH_ENTRY_PREFIX}old` };
+    const merged = mergeDemoCashEntries([userEntry, staleDemoEntry], new Date('2026-10-31T12:00:00Z'));
+    expect(merged[0]).toEqual(userEntry);
+    expect(merged).toHaveLength(4);
+    expect(withoutDemoCashEntries(merged)).toEqual([userEntry]);
+  });
+
+  it('upgrades an older default bundle so demo deposits do not match the broad withdrawal rule', () => {
+    const older = seedSettings();
+    older.categories = older.categories.filter((category) => category.tag !== 'Cash Deposits');
+    const withdrawals = older.categories.find((category) => category.tag === 'Cash Withdrawals')!;
+    withdrawals.cashMovement = null;
+    withdrawals.rules.push({ text: 'cash', caseSensitive: false, fuzzy: false, regex: false });
+
+    expect(configureDemoCashCategories(older)).toBe(true);
+    expect(older.categories.find((category) => category.tag === 'Cash Withdrawals')?.cashMovement).toBe('withdrawal');
+    expect(older.categories.find((category) => category.tag === 'Cash Deposits')?.cashMovement).toBe('deposit');
+    expect(withdrawals.rules.some((rule) => rule.text === 'cash')).toBe(false);
+    expect(configureDemoCashCategories(older)).toBe(false);
   });
 
   it('is in English and carries no real people or accounts', () => {

@@ -29,20 +29,30 @@ Built for GitHub Pages — the whole app is the static files in `dist/`.
   just before it, and expanding a row shows its transactions as a striped list. Three footer rows
   under the matrix — **Total Income**, **Total Expenses** and **Total Net** (income − expenses) —
   sum the visible categories independently of the shown measure; each carries a thicker top line
-  marking it as a table sum, not a category row.
+   marking it as a table sum, not a category row.
 - **Categories** — rule editor (text / case-sensitive / fuzzy / regex, IBANs, date ranges,
   priority order, live preview per category, conflict hints for rules that overlap), several
   settings bundles you can switch between, **Auto Colorize**, and **Let AI write the categories**
   (it only writes a prompt — see below).
   On phones and tablets the settings-files panel sits above the category cards instead of floating
   over them.
-- **CSV** — search, amount/date/category filters, resizable columns, paging. **Click** a cell to
+- **Transactions** — bank statement rows and manual cash entries, with search, amount/date/category
+  filters, resizable columns and paging. The Balance / change column shows net movement from zero
+  until a dated opening balance is set per bank account; then it calculates actual transaction
+  balances before and after that date, even when an export starts partway through history.
+  The expandable **Cash balance & entries** section includes the wallet opening balance, manual cash
+  expenses/income, and dated reconciliation; marked bank withdrawals/deposits update cash and are
+  excluded from Spending totals by default — their Spending rows stay visible with a clickable
+  **Cash movement** badge that counts them anyway. Manual cash expenses remain in the normal category/month reports.
+  The Spending balance summary marks totals with **Δ** when an account lacks an opening balance; these use
+  net movement from zero as an estimate until you set opening balances for actual totals.
+  **Click** a cell to
   select that one value (Ctrl+C copies it); **double-click** to mark the whole column and copy every
   value in it, one per line.
 - **Export CSV** — the header carries an **Export** button (download icon, next to print) on both
   table pages. It never downloads directly: first a dialog spells out **what exactly would be
   exported** — row scope (all filtered rows or the current page), order, columns, active filters —
-  and only **Download CSV** confirms. The CSV page exports the table as displayed (one signed
+  and only **Download CSV** confirms. The Transactions page exports the table as displayed (one signed
   Amount column while amounts are merged, Category included); the Spending page exports the matrix
   with its shown months, **Total**/**Average** and the three Total footer rows (dimmed hidden
   categories included, switchable in the dialog). Plain signed amounts (`-1234.50`), `dd.mm.yyyy`
@@ -51,7 +61,9 @@ Built for GitHub Pages — the whole app is the static files in `dist/`.
 - **Sticky headers** — in both tables the header sticks under the menu while scrolling and releases
   exactly at the bottom of the table (it no longer floats over the charts below it).
 - **Load demo data** on the empty pages: an anonymized English sample statement (common Swiss,
-  German and online shops) so you can try everything without touching your real data.
+  German and online shops), marked cash withdrawals/deposits, and a few manual cash purchases. In the
+  default settings bundle, it enables the matching starter cash categories for the sample.
+  Removing the demo statement also removes its sample cash entries, without touching your own cash data.
 - Straight corners, zebra-striped tables, full-width layout, light/dark theme, installable PWA.
 
 ## Run
@@ -144,7 +156,7 @@ transaction ID, IBAN, credit/debit or single signed amount…).
 
 ### Add CSV modal (where mappers live)
 
-CSVs are added with the **Add CSV** button (header, or on the CSV page — a page without
+CSVs are added with the **Add CSV** button (header, or on the Transactions page — a page without
 data shows an **Upload first a CSV** box you can click), or by **dropping files anywhere on
 the page** while you are on any tab. Either way it **stores nothing yet** — it opens the modal:
 
@@ -157,7 +169,7 @@ the page** while you are on any tab. Either way it **stores nothing yet** — it
 4. The modal also manages the registry: rename / duplicate / export / import / delete saved mappers.
 5. **Add to dataset** stores the files with their mapper snapshots and ingests them.
 
-"Re-map stored files" from the CSV tab opens the same dialog with every stored file, preselected
+"Re-map stored files" from the Transactions tab opens the same dialog with every stored file, preselected
 with its snapshot — only the files you actually change are re-parsed.
 
 Encoding: decoded as UTF-8 with Windows-1252 fallback; amounts tolerate `CHF`, `’`/`.`/`,`
@@ -168,9 +180,11 @@ groupings and decimal commas; dates tolerate `DD.MM.YYYY`, `DD/MM/YYYY`, `DD-MM-
 `src/seed/demoCsv.ts` generates the sample statement behind **Load demo data**: six months of
 English transactions in the built-in layout, with common Swiss shops (Migros, Coop, Denner, Galaxus,
 Ricardo…), German shops (REWE, EDEKA, dm, Rossmann, MediaMarkt, Kaufland…) and online shops
-(Amazon, Zalando, Temu, AliExpress, eBay, Vinted…), plus a few rows that stay deliberately
-uncategorized. Payees, IBANs and amounts are invented; nothing real is in there. It goes through the
-normal upload path, so it is stored, categorized and removed like any other file.
+(Amazon, Zalando, Temu, AliExpress, eBay, Vinted…), including cash withdrawal/deposit transfers, plus a
+few rows that stay deliberately uncategorized. `src/seed/demoCash.ts` adds categorized manual cash
+purchases to the wallet ledger. Payees, IBANs and amounts are invented; nothing real is in there. The
+statement goes through the normal upload path, and removing it also removes only the associated demo
+cash entries.
 
 ## Let AI write the categories
 
@@ -204,7 +218,7 @@ uploads of the same file are safe (same-name uploads replace; merged rows collap
 
 ## Printing
 
-The header print button opens a dialog for the current page (CSV table or Spending matrix) and both
+The header print button opens a dialog for the current page (Transactions table or Spending matrix) and both
 **remember what you last printed** in localStorage. Defaults: CSV → booking date + description, one
 merged signed Amount column, category merged into the description, bold income, landscape;
 Spending → graphs on the same page, landscape, page numbers, summary blocks and the Total

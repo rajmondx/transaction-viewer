@@ -1,4 +1,4 @@
-import { Database, Download, FileUp, Landmark, Menu, Moon, Printer, Sun, Upload } from 'lucide';
+import { Database, Download, FileUp, HelpCircle, Landmark, Menu, Moon, Printer, Sun, Upload } from 'lucide';
 import { state, bootstrap, subscribe } from './state';
 import { doUpload } from './ui/uploadFlow';
 import { onCsvPicked } from './ui/addCsv';
@@ -127,16 +127,20 @@ document.addEventListener('keydown', (e) => {
 // ---------- URL hash routing: menu clicks write history entries (#spending / #csv / #categories) ----------
 
 type TabKey = typeof state.activeTab;
-const HASH_TO_TAB: Record<string, TabKey> = { '#spending': 'spending', '#csv': 'csv', '#categories': 'settings', '#help': 'help' };
-const TAB_TO_HASH: Record<TabKey, string> = { spending: '#spending', csv: '#csv', settings: '#categories', help: '#help' };
+const HASH_TO_TAB: Record<string, TabKey> = { '#spending': 'spending', '#cash': 'csv', '#transactions': 'csv', '#csv': 'csv', '#categories': 'settings', '#help': 'help' };
+const TAB_TO_HASH: Record<TabKey, string> = { spending: '#spending', csv: '#transactions', settings: '#categories', help: '#help' };
 
 function applyHash(): void {
-  const tab = HASH_TO_TAB[location.hash];
+  const hash = location.hash;
+  const tab = HASH_TO_TAB[hash];
   if (tab && tab !== state.activeTab) {
     state.activeTab = tab;
     closeMenu();
     renderActive();
   }
+  // Older bookmarks used #cash and #csv. Keep them working, but normalize the
+  // address bar to the single Transactions route even when it is already active.
+  if (tab && hash !== TAB_TO_HASH[tab]) history.replaceState(null, '', TAB_TO_HASH[tab]);
 }
 
 document.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((t) => {
@@ -160,6 +164,7 @@ menuBtn.appendChild(Ic(Menu, 'size-4'));
 
 document.getElementById('brand-icon')?.appendChild(Ic(Landmark, 'size-5'));
 document.getElementById('upload-btn')?.prepend(Ic(Upload, 'size-4'));
+document.getElementById('help-btn')?.appendChild(Ic(HelpCircle, 'size-4'));
 document.querySelector('#drop-overlay > div')?.prepend(Ic(FileUp, 'size-12'));
 
 // ---------- theme toggle ----------

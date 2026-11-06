@@ -48,8 +48,8 @@
         }
       })();
     </script>
-    <script type="module" crossorigin src="./assets/index-DJQ8eIqe.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-BK_ukqYX.css">
+    <script type="module" crossorigin src="./assets/index-Dky8UxQZ.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-CjD5_CXv.css">
   </head>
   <body class="bg-background text-foreground">
     <header
@@ -60,7 +60,7 @@
         <!--<span id="brand-icon" class="grid size-[32px] shrink-0 place-items-center bg-primary text-primary-foreground"></span>-->
         <div class="hidden min-w-0 sm:block">
           <h1 class="truncate text-[16px] font-semibold leading-tight">
-            Transaction Viewer
+            Tx Viewer
           </h1>
         </div>
       </div>
@@ -83,7 +83,7 @@
             role="tab"
             class="flex cursor-pointer items-center gap-1.5 border-0 bg-transparent px-3 py-1.5 text-[13px] text-muted-foreground transition-colors select-none outline-none hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary data-[active=true]:bg-card data-[active=true]:font-semibold data-[active=true]:text-foreground data-[active=true]:shadow-[0_1px_3px_rgb(0_0_0/0.14)]"
           >
-            CSV
+            Transactions
           </button>
           <button
             data-tab="settings"
@@ -91,13 +91,6 @@
             class="flex cursor-pointer items-center gap-1.5 border-0 bg-transparent px-3 py-1.5 text-[13px] text-muted-foreground transition-colors select-none outline-none hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary data-[active=true]:bg-card data-[active=true]:font-semibold data-[active=true]:text-foreground data-[active=true]:shadow-[0_1px_3px_rgb(0_0_0/0.14)]"
           >
             Categories
-          </button>
-          <button
-            data-tab="help"
-            role="tab"
-            class="flex cursor-pointer items-center gap-1.5 border-0 bg-transparent px-3 py-1.5 text-[13px] text-muted-foreground transition-colors select-none outline-none hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary data-[active=true]:bg-card data-[active=true]:font-semibold data-[active=true]:text-foreground data-[active=true]:shadow-[0_1px_3px_rgb(0_0_0/0.14)]"
-          >
-            Help
           </button>
         </nav>
       </div>
@@ -141,6 +134,13 @@
         >
           <span class="hidden sm:inline">CSV</span>
         </button>
+        <button
+          id="help-btn"
+          data-tab="help"
+          title="Help"
+          aria-label="Help"
+          class="grid size-9 cursor-pointer place-items-center border border-border bg-card text-foreground transition-colors hover:border-input data-[active=true]:border-primary data-[active=true]:text-primary"
+        ></button>
         <div class="relative md:hidden">
           <button
             id="menu-btn"
@@ -167,7 +167,7 @@
               role="menuitem"
               class="flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent px-2.5 py-2 text-left text-[13px] text-foreground transition-colors select-none outline-none hover:bg-muted/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary data-[active=true]:bg-accent-soft data-[active=true]:font-semibold data-[active=true]:text-primary"
             >
-              CSV
+              Transactions
             </button>
             <button
               data-tab="settings"
@@ -175,13 +175,6 @@
               class="flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent px-2.5 py-2 text-left text-[13px] text-foreground transition-colors select-none outline-none hover:bg-muted/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary data-[active=true]:bg-accent-soft data-[active=true]:font-semibold data-[active=true]:text-primary"
             >
               Categories
-            </button>
-            <button
-              data-tab="help"
-              role="menuitem"
-              class="flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent px-2.5 py-2 text-left text-[13px] text-foreground transition-colors select-none outline-none hover:bg-muted/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary data-[active=true]:bg-accent-soft data-[active=true]:font-semibold data-[active=true]:text-primary"
-            >
-              Help
             </button>
           </div>
         </div>

@@ -61,6 +61,34 @@ export function field(caption: string, icon: IconNode | null, ...controls: Array
   );
 }
 
+/** One button of a segmented toggle group — the active one filled, the rest
+ *  muted. The data-fk keeps keyboard focus on it across the re-render its own
+ *  click triggers (see main.ts). */
+export function togBtn(fk: string, label: string, title: string, on: boolean, onclick: () => void): HTMLElement {
+  return h('button', {
+    dataset: { fk },
+    class: cx(C.togBase, 'px-2.5 py-1 font-sans', on ? C.togOn : C.togOff),
+    attrs: { 'aria-pressed': on ? 'true' : 'false' },
+    title, text: label, onclick,
+  });
+}
+
+/** The Cash | Bank | All source segment, shared by the Transactions and the
+ *  Spending toolbar. Values follow CsvFilter.source — 'both' is the "All"
+ *  button; both pages scope their rows with the same three-way choice. */
+export function sourceGroup(
+  fkPrefix: string,
+  current: 'cash' | 'bank' | 'both',
+  titles: { cash: string; bank: string; all: string },
+  select: (v: 'cash' | 'bank' | 'both') => void,
+): HTMLElement[] {
+  return [
+    togBtn(`${fkPrefix}-cash`, 'Cash', titles.cash, current === 'cash', () => select('cash')),
+    togBtn(`${fkPrefix}-bank`, 'Bank', titles.bank, current === 'bank', () => select('bank')),
+    togBtn(`${fkPrefix}-all`, 'All', titles.all, current === 'both', () => select('both')),
+  ];
+}
+
 export interface Props {
   class?: string;
   text?: string | number;

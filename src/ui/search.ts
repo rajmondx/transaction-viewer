@@ -2,6 +2,7 @@ import type { Tx } from '../types';
 import { fuzzyIn } from '../categories/engine';
 
 export interface CsvFilter {
+  source: 'cash' | 'bank' | 'both';
   text: string;
   caseSensitive: boolean;
   fuzzy: boolean;
@@ -16,6 +17,7 @@ export interface CsvFilter {
 
 export function defaultCsvFilter(): CsvFilter {
   return {
+    source: 'both',
     text: '',
     caseSensitive: false,
     fuzzy: false,
@@ -68,10 +70,13 @@ export function filterTxs(
   txs: Tx[],
   f: CsvFilter,
   categoryOf: (tx: Tx) => string,
+  sourceMatches: (tx: Tx, source: CsvFilter['source']) => boolean = (tx, source) =>
+    source === 'both' || (source === 'cash' ? Boolean(tx.cashEntryId) : !tx.cashEntryId),
 ): Tx[] {
   const min = parseAmountInput(f.minAmount);
   const max = parseAmountInput(f.maxAmount);
   return txs.filter((tx) => {
+    if (!sourceMatches(tx, f.source)) return false;
     if (f.direction === 'income' && tx.credit <= 0) return false;
     if (f.direction === 'expense' && tx.debit <= 0) return false;
     if (f.dateFrom && tx.bookingDate && tx.bookingDate < f.dateFrom) return false;

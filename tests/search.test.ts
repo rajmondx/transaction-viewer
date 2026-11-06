@@ -62,6 +62,12 @@ describe('filterTxs', () => {
     expect(filterTxs(txs, { ...defaultCsvFilter(), direction: 'income' }, catOf).map((t) => t.ref)).toEqual(['A2']);
     expect(filterTxs(txs, { ...defaultCsvFilter(), direction: 'expense' }, catOf).map((t) => t.ref)).toEqual(['A1', 'A3']);
   });
+  it('filters manual cash entries, bank rows, or both', () => {
+    const rows = [tx({ ref: 'BANK' }), tx({ ref: 'CASH', cashEntryId: 'cash-1' })];
+    expect(filterTxs(rows, { ...defaultCsvFilter(), source: 'cash' }, catOf).map((t) => t.ref)).toEqual(['CASH']);
+    expect(filterTxs(rows, { ...defaultCsvFilter(), source: 'bank' }, catOf).map((t) => t.ref)).toEqual(['BANK']);
+    expect(filterTxs(rows, defaultCsvFilter(), catOf)).toHaveLength(2);
+  });
   it('multi-category selection', () => {
     const catOf = (t: Tx) => (t.ref === 'A1' ? 'Lebensmittel' : t.ref === 'A2' ? 'Einkommen' : 'Uncategorized');
     const f = { ...defaultCsvFilter(), selectedCats: ['Lebensmittel', 'Uncategorized'] };
