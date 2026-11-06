@@ -1,6 +1,9 @@
 # dependencies
 node_modules/
 
+# build output — GitHub Pages deploys it from the Actions artifact, never commit
+dist/
+
 # tooling / editor / OS
 .openchamber/
 .idea/
