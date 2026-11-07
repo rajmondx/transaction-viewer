@@ -560,7 +560,8 @@ function categoryCard(
   color.oninput = () => { cat.color = color.value; markDirty(); };
 
   const tag = h('input', { class: cx(C.input, 'w-[190px] shrink-0 font-semibold'), dataset: { fk: `tag-${i}` }, attrs: { type: 'text', value: cat.tag, 'aria-label': 'tag' } }) as HTMLInputElement;
-  tag.oninput = () => { cat.tag = tag.value; markDirty(); };
+  // Commit on blur so the previous tag is still available to update children.
+  tag.oninput = () => { markDirty(); };
   const renameTag = () => {
     const newTag = tag.value.trim() || cat.tag;
     const oldTag = cat.tag;

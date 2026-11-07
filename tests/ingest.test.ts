@@ -34,6 +34,26 @@ const customCsv = (rows: string[]): string =>
   ['Date,Description,Amount,Ref,IBAN', ...rows].join('\n') + '\n';
 
 describe('ingestFiles (per-file mapper snapshots)', () => {
+  it.each(['Ref', ''])('scopes non-IBAN dedup keys by account with txId=%s', (txId) => {
+    const mapper: Mapper = { name: 'Accounts', columns: {
+      bookingDate: 'Date', text: 'Description', amount: 'Amount', account: 'Account', ...(txId ? { txId } : {}),
+    } };
+    const content = 'Date,Description,Amount,Account,Ref\n2026-01-01,Coffee,-5,Checking,R1\n2026-01-01,Coffee,-5,Savings,R1';
+    const result = ingestFiles([
+      { name: 'a.csv', content, mapper },
+      { name: 'overlap.csv', content, mapper },
+    ]);
+    expect(result.txs).toHaveLength(2);
+    expect(result.txs.map((t) => t.account).sort()).toEqual(['Checking', 'Savings']);
+  });
+
+  it('uses aliases when neither IBAN nor account is mapped', () => {
+    const mapper: Mapper = { name: 'Aliases', columns: {
+      bookingDate: 'Date', text: 'Description', amount: 'Amount', accountAlias: 'Alias',
+    } };
+    const content = 'Date,Description,Amount,Alias\n2026-01-01,Coffee,-5,Checking\n2026-01-01,Coffee,-5,Savings';
+    expect(ingestFiles([{ name: 'a.csv', content, mapper }]).txs).toHaveLength(2);
+  });
   it('parses each file with its own mapper and merges across banks', () => {
     const res = ingestFiles([
       { name: 'abs.csv', content: absCsv(['01.10.2026,01.10.2026,A1,K,KU,' + IBAN + ',ABS rent,,500.00']), mapper: ABS_MAPPER },

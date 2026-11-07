@@ -48,6 +48,11 @@ describe('parseCsvRecords', () => {
 });
 
 describe('parseAmount', () => {
+  it('uses the last separator as decimal for European and US groupings', () => {
+    expect(parseAmount('1.234,56')).toBe(1234.56);
+    expect(parseAmount('-1.234.567,89')).toBe(-1234567.89);
+    expect(parseAmount('1,234,567.89')).toBe(1234567.89);
+  });
   it('parses swiss bank amount styles', () => {
     expect(parseAmount('CHF -500.00')).toBe(-500);
     expect(parseAmount('CHF -1,600.00')).toBe(-1600);

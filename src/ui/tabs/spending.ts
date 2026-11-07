@@ -231,6 +231,9 @@ export function renderSpending(container: HTMLElement): void {
   const flat = flattenTree(roots);
   const isHidden = (tag: string) => view.hiddenCats.includes(tag);
   const sub = subtreeByMonth(roots, agg.own);
+  // Keep dimmed matrix rows intact, but exclude their own transactions from
+  // chart rollups just as the summary and footer do (children toggle separately).
+  const chartSub = subtreeByMonth(roots, new Map([...agg.own].filter(([tag]) => !isHidden(tag))));
   const measure = view.measure;
   const measureName = measure === 'expense' ? 'Expenses' : measure === 'income' ? 'Income' : 'Net';
   // average mode (sanitized: anything unexpected behaves as 'off')
@@ -728,12 +731,14 @@ export function renderSpending(container: HTMLElement): void {
   // one card under the other: the monthly chart is as wide as its month count
   // needs (and scrolls inside its own card), so it can never push the Share
   // chart out of the window the way the old side-by-side grid did
-  const rootVisible = roots.filter((r) => !isHidden(r.tag));
+  // Hiding a parent's own assignments does not hide its independently selected
+  // children. Retain that chart grouping when visible children contribute data.
+  const rootVisible = roots.filter((r) => !isHidden(r.tag) || subtreeTotals(chartSub.get(r.tag)).count > 0);
   const series = rootVisible.map((r) => ({
     name: r.tag,
     color: r.category?.color ?? '#9aa2ad',
     values: visibleMonths.map((mo) => {
-      const a = (sub.get(r.tag) ?? new Map()).get(mo) ?? { debit: 0, credit: 0, count: 0 };
+      const a = (chartSub.get(r.tag) ?? new Map()).get(mo) ?? { debit: 0, credit: 0, count: 0 };
       return measureOf(a, measure);
     }),
   }));
@@ -743,7 +748,7 @@ export function renderSpending(container: HTMLElement): void {
    *  own sub-categories, grouped under it. Percentages stay relative to the top-level
    *  magnitudes, so a parent and its children never count twice. */
   const shareSubs = view.shareSubs === true;
-  const valueOf = (n: TreeNode): number => measureOf(subtreeTotals(sub.get(n.tag)), measure);
+  const valueOf = (n: TreeNode): number => measureOf(subtreeTotals(chartSub.get(n.tag)), measure);
   const byMagnitude = (a: TreeNode, b: TreeNode): number => Math.abs(valueOf(b)) - Math.abs(valueOf(a));
   const shareTotal = rootVisible.reduce((s, r) => s + valueOf(r), 0);
   const shareDenominator = rootVisible.reduce((s, r) => s + Math.abs(valueOf(r)), 0);
@@ -770,7 +775,7 @@ export function renderSpending(container: HTMLElement): void {
   // 'Return' switches the card back to the Monthly chart. (Share chart itself stays
   // over the full range; the 'Sub-categories' toggle applies to both views.) ----
   const focus: Month | null = monthFocus && visibleMonths.includes(monthFocus) ? monthFocus : null;
-  const monthAgg = (tag: string, mo: Month): Agg => (sub.get(tag) ?? new Map<Month, Agg>()).get(mo) ?? ZERO;
+  const monthAgg = (tag: string, mo: Month): Agg => (chartSub.get(tag) ?? new Map<Month, Agg>()).get(mo) ?? ZERO;
   const statBox = (label: string, value: string, tone: string): HTMLElement =>
     h('div', { class: 'border border-border bg-subtle px-2.5 py-1.5' },
       h('div', { class: C.label, text: label }),

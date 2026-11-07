@@ -42,15 +42,13 @@ function closeModal(): void {
   document.removeEventListener('keydown', onEsc);
 }
 
-function cloneMapper(m: Mapper): Mapper {
-  return { name: m.name, columns: { ...m.columns } };
-}
-
 function resolveMapper(e: Entry): Mapper {
   if (e.sel.kind === 'preset') {
     const want = e.sel.name;
     const found = allMappers().find((m) => m.name === want);
-    if (found) return cloneMapper(found);
+    // Registry edits made while this dialog is open must not change another
+    // file's mapping implicitly. Selecting a preset explicitly copies its columns.
+    if (found) return { name: found.name, columns: { ...e.columns } };
     // preset vanished (deleted while the dialog is open) → continue with its columns as custom
     e.sel = { kind: 'custom' };
     e.customName = want;
@@ -71,7 +69,8 @@ export function openUploadModal(
   const entries: Entry[] = files.map((f) => {
     const headers = parseCsvHeaders(f.content);
     if (mode === 'remap' && f.mapper) {
-      const asPreset = allMappers().find((m) => m.name === f.mapper!.name);
+      const asPreset = allMappers().find((m) => m.name === f.mapper!.name
+        && MAPPER_FIELDS.every(({ key }) => (m.columns[key] || '') === (f.mapper!.columns[key] || '')));
       return {
         name: f.name, content: f.content, headers,
         sel: asPreset ? ({ kind: 'preset', name: asPreset.name } as const) : ({ kind: 'custom' } as const),

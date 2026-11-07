@@ -124,7 +124,7 @@ export function serializeSettings(s: Settings): string {
       o.color = c.color;
       o.iban = c.ibans;
       o.search_tag = c.rules.map((r) => {
-        const special = r.caseSensitive || r.fuzzy || r.regex;
+        const special = r.caseSensitive || r.fuzzy || r.regex || flagFor(r.text) !== null;
         if (!special) return r.text;
         const ro: Record<string, unknown> = { text: r.text };
         if (r.caseSensitive) ro.case_sensitive = true;

@@ -63,6 +63,14 @@ describe('parseSettings (sketch format)', () => {
     expect(again.categories.map((c) => c.rules)).toEqual(settings.categories.map((c) => c.rules));
     expect(again.categories.map((c) => c.tagFather)).toEqual(settings.categories.map((c) => c.tagFather));
   });
+
+  it('preserves literal rules whose text is a mode flag', () => {
+    const texts = ['plain', 'fuzzy', 'regex', 'contains', 'case_sensitive', 'case insensitive', 'case_insentive'];
+    const original = parseSettings(JSON.stringify({ categories: [{
+      tag: 'Literal', search_tag: texts.map((text) => ({ text })),
+    }] }), 't');
+    expect(parseSettings(serializeSettings(original), 't')).toEqual(original);
+  });
 });
 
 describe('matching', () => {

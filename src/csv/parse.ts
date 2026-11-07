@@ -86,9 +86,12 @@ export function parseAmount(s: string | undefined): number | null {
   if (!s) return null;
   let t = s.trim().replace(/^CHF\s*/i, '').replace(/\s/g, '').replace(/[’'.]/g, (m) => (m === '.' ? '.' : ''));
   if (t === '') return null;
-  // if both , and . present: , is thousands separator
-  if (t.includes(',') && t.includes('.')) t = t.replace(/,/g, '');
-  else if (t.includes(',')) t = t.replace(/,/g, '.'); // only comma -> decimal comma
+  // When both separators occur, the last one is decimal (1,234.56 / 1.234,56).
+  if (t.includes(',') && t.includes('.')) {
+    t = t.lastIndexOf(',') > t.lastIndexOf('.')
+      ? t.replace(/\./g, '').replace(/,/g, '.')
+      : t.replace(/,/g, '');
+  } else if (t.includes(',')) t = t.replace(/,/g, '.'); // only comma -> decimal comma
   const n = Number(t);
   return Number.isFinite(n) ? n : null;
 }
@@ -133,9 +136,10 @@ export interface BankCsvParseResult {
 /**
  * Stable dedup id. Overlapping bank exports (e.g. monthly statements re-listing
  * boundary transactions) must produce the same id for the same payment:
- *   primary key = transaction id + IBAN + amounts (so different amounts stay separate,
+ *   primary key = transaction id + account identity + amounts (so different amounts stay separate,
  *   while text/date differences merge — see csv/dedupe.ts)
- *   fallback (rows without a transaction id) = iban + date + amounts + text.
+ *   account identity = IBAN, or normalized account/alias when no IBAN is mapped;
+ *   fallback (rows without a transaction id) = account identity + date + amounts + text.
  */
 export function makeTxId(ref: string, iban: string, booking: string, credit: number, debit: number, hay: string): string {
   const amt = `${credit.toFixed(2)}|${debit.toFixed(2)}`;
@@ -201,7 +205,12 @@ export function parseWithMapper(text: string, fileName: string, mapper: Mapper):
     const iban = normalizeIban(ibanDisplay);
     const ref = has('txId') ? get(r, 'txId').trim() : '';
     const hay = rawText.replace(/\s+/g, ' ').trim();
-    const id = makeTxId(ref, iban, booking ?? '', credit, debit, hay);
+    const account = has('account') ? get(r, 'account').trim() : '';
+    const accountAlias = has('accountAlias') ? get(r, 'accountAlias').trim() : '';
+    // Non-IBAN exports still need an account-scoped dedup key. Keep the
+    // original IBAN key unchanged when available, including across mappers.
+    const identity = iban || (account ? `account:${account.toLowerCase()}` : accountAlias ? `alias:${accountAlias.toLowerCase()}` : '');
+    const id = makeTxId(ref, identity, booking ?? '', credit, debit, hay);
     txs.push({
       id,
       file: fileName,
@@ -209,8 +218,8 @@ export function parseWithMapper(text: string, fileName: string, mapper: Mapper):
       bookingDate: booking ?? '',
       valueDate: has('valueDate') ? parseDateAuto(get(r, 'valueDate')) ?? '' : '',
       ref,
-      account: has('account') ? get(r, 'account').trim() : '',
-      accountAlias: has('accountAlias') ? get(r, 'accountAlias').trim() : '',
+      account,
+      accountAlias,
       iban,
       ibanDisplay,
       text: rawText.replace(/\r/g, '').replace(/\n/g, ' ⏐ ').trim(),

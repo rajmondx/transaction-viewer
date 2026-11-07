@@ -1,6 +1,6 @@
 /** One bank transaction parsed from the CSV. */
 export interface Tx {
-  /** stable dedup id: hash of txId|iban|credit|debit (fallback iban|date|amount|text when no txId) */
+  /** stable dedup id: hash of txId|account identity|credit|debit (fallback includes date/text when no txId) */
   id: string;
   /** source csv file name */
   file: string;
