@@ -33,6 +33,9 @@ class ElementStub {
     return child;
   }
   append(...children: ElementStub[]): void { children.forEach((child) => this.appendChild(child)); }
+  replaceChildren(...children: ElementStub[]): void { this.children = []; this.append(...children); }
+  showModal(): void { this.attrs.open = 'true'; }
+  close(): void { (this.events.close ?? []).forEach((fn) => fn()); }
   get firstChild(): ElementStub | undefined { return this.children[0]; }
   removeChild(child: ElementStub): void { this.children.splice(this.children.indexOf(child), 1); }
   remove(): void { this.parent?.removeChild(this); }
@@ -93,6 +96,133 @@ describe('category editor regressions', () => {
     elements.find((el) => el.tag === 'button' && text(el) === 'Save')!.events.click[0]();
     expect(getSettingsObj('default')!.categories.map((c) => [c.tag, c.tagFather]))
       .toEqual([['Home', null], ['Rent', 'Home']]);
+  });
+});
+
+describe('transaction annotation UI', () => {
+  async function fixture() {
+    const files = await import('../src/storage/files');
+    vi.spyOn(files, 'saveFinance').mockResolvedValue(undefined);
+    const { state } = await import('../src/state');
+    const { parseSettings } = await import('../src/categories/schema');
+    const { parseWithMapper } = await import('../src/csv/parse');
+    state.settings = parseSettings(JSON.stringify({ categories: [{ tag: 'Food', search_tag: ['food'] }, { tag: 'Rent', search_tag: ['rent'] }] }), 'default');
+    state.txs = parseWithMapper('Date,Description,Amount\n2026-01-01,food,-100', 'bank.csv', { name: 'Custom', columns: { bookingDate: 'Date', text: 'Description', amount: 'Amount' } }).txs;
+    const { openTransactionTools } = await import('../src/ui/financeTools');
+    openTransactionTools(state.txs[0]);
+    return { state, files, id: state.txs[0].id };
+  }
+  const click = (label: string) => all(body).find((el) => el.tag === 'button' && text(el) === label)!.events.click[0]();
+  it('offers both requested actions and persists only the selected transaction', async () => {
+    const { state, id } = await fixture();
+    expect(all(body).some((el) => text(el) === 'Create a rule for similar ones')).toBe(true);
+    all(body).find((el) => el.tag === 'select' && el.attrs['aria-label'] === 'Category')!.value = 'Rent';
+    click('Only this transaction');
+    await vi.waitFor(() => expect(state.finance.bundles.default.annotations[id].category).toBe('Rent'));
+    expect(state.txs[0].debit).toBe(100);
+    expect(all(body).some((el) => el.tag === 'dialog')).toBe(false);
+  });
+  it('does not update annotations when durable storage fails', async () => {
+    const { state, files } = await fixture();
+    vi.mocked(files.saveFinance).mockRejectedValueOnce(new Error('Storage full'));
+    all(body).find((el) => el.tag === 'select' && el.attrs['aria-label'] === 'Category')!.value = 'Rent';
+    click('Only this transaction');
+    await vi.waitFor(() => expect(text(body)).toContain('Storage full'));
+    expect(state.finance.bundles.default).toBeUndefined();
+  });
+  it('validates split totals before saving and keeps the ledger amount', async () => {
+    const { state, id } = await fixture();
+    click('Save split');
+    await vi.waitFor(() => expect(text(body)).toContain('positive amounts'));
+    const amounts = all(body).filter((el) => el.tag === 'input' && el.attrs.type === 'number');
+    amounts[0].value = '40'; amounts[0].oninput!(); amounts[1].value = '60'; amounts[1].oninput!();
+    click('Save split');
+    await vi.waitFor(() => expect(state.finance.bundles.default.annotations[id].parts).toHaveLength(2));
+    expect(state.txs[0].debit).toBe(100);
+  });
+  it('serializes concurrent writes and detaches editor-owned arrays', async () => {
+    const { state, files } = await fixture();
+    const { updateFinance } = await import('../src/state');
+    let release!: () => void;
+    vi.mocked(files.saveFinance).mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve; }));
+    const edited = ['first'];
+    const first = updateFinance((data) => { data.rejectedTransfers = edited; });
+    const second = updateFinance((data) => { data.rejectedTransfers.push('second'); });
+    await vi.waitFor(() => expect(files.saveFinance).toHaveBeenCalledTimes(1));
+    edited.push('not committed'); release();
+    await Promise.all([first, second]);
+    expect(state.finance.rejectedTransfers).toEqual(['first', 'second']);
+  });
+});
+
+describe('Planning readability and navigation', () => {
+  async function fixture() {
+    const files = await import('../src/storage/files');
+    vi.spyOn(files, 'saveFinance').mockResolvedValue(undefined);
+    const { state } = await import('../src/state');
+    const { parseSettings } = await import('../src/categories/schema');
+    const { parseWithMapper } = await import('../src/csv/parse');
+    const { detectRecurring } = await import('../src/finance/recurring');
+    const { renderFinance } = await import('../src/ui/tabs/finance');
+    state.settings = parseSettings(JSON.stringify({ categories: [{ tag: 'Bills', search_tag: ['subscription'] }] }), 'default');
+    state.settingsFiles = [{ name: 'default', isDefault: true }];
+    const rows = ['Active subscription', 'Suggested subscription', 'Archived subscription'].flatMap((name) =>
+      ['2026-01-01', '2026-02-01', '2026-03-01'].map((date) => `${date},${name},-10`));
+    state.txs = parseWithMapper(`Date,Description,Amount\n${rows.join('\n')}`, 'bank.csv', { name: 'Custom', columns: { bookingDate: 'Date', text: 'Description', amount: 'Amount' } }).txs;
+    const detected = detectRecurring(state.txs);
+    state.finance.series = detected.filter((s) => !s.name.startsWith('suggested')).map((s) => ({
+      id: s.id, name: s.name, txIds: s.rows.map((r) => r.id), keys: s.keys, cadence: s.cadence, variable: false,
+      status: s.name.startsWith('archived') ? 'dismissed' as const : 'confirmed' as const,
+    }));
+    const render = () => { const root = host(); renderFinance(root); return root as unknown as ElementStub; };
+    return { state, render };
+  }
+
+  it('separates active bills from suggestions and keeps explanations collapsed', async () => {
+    const { render } = await fixture();
+    const root = render(), elements = all(root);
+    const metrics = elements.filter((el) => el.className === 'planning-metric');
+    expect(metrics).toHaveLength(3);
+    expect(text(metrics[0])).toContain('10.00');
+    expect(text(metrics[0])).not.toContain('30.00');
+    expect(text(root)).toContain('Active bills'); expect(text(root)).toContain('Suggestions');
+    const cards = elements.filter((el) => el.className === 'planning-item');
+    expect(cards).toHaveLength(2);
+    expect(cards.some((el) => text(el).includes('Archived subscription'))).toBe(false);
+    expect(elements.filter((el) => el.tag === 'details').every((el) => !el.attrs.open)).toBe(true);
+    expect(elements.some((el) => el.attrs['aria-label'] === 'Search recurring payments')).toBe(true);
+  });
+
+  it('searches payments without changing stored names or hiding archived access', async () => {
+    const { render, state } = await fixture();
+    let root = render();
+    const search = all(root).find((el) => el.attrs['aria-label'] === 'Search recurring payments')!;
+    search.value = 'Suggested'; search.oninput!(); root = render();
+    expect(all(root).filter((el) => el.className === 'planning-item')).toHaveLength(1);
+    const filter = all(root).find((el) => el.attrs['aria-label'] === 'Recurring payment status')!;
+    search.value = ''; search.oninput!(); filter.value = 'archived'; filter.onchange!(); root = render();
+    expect(text(root)).toContain('Archived subscription');
+    expect(all(root).some((el) => el.tag === 'button' && text(el) === 'Reactivate')).toBe(true);
+    expect(state.finance.series.find((s) => s.status === 'dismissed')?.name).toBe('archived subscription');
+  });
+
+  it('keeps suggestion confirmation functional in the compact layout', async () => {
+    const { render, state } = await fixture();
+    const root = render();
+    const confirm = all(root).find((el) => el.tag === 'button' && text(el) === 'Confirm')!;
+    confirm.events.click[0]();
+    await vi.waitFor(() => expect(state.finance.series.filter((s) => s.status === 'confirmed')).toHaveLength(2));
+  });
+
+  it('navigates to transfers, budgets and saved edits with clear empty states', async () => {
+    const { render } = await fixture();
+    let root = render();
+    for (const [key, expected] of [['transfers', 'No transfers to review'], ['budgets', 'Give a category a spending limit'], ['review', 'No saved edits yet']]) {
+      all(root).find((el) => el.dataset.fk === `planning-nav-${key}`)!.events.click[0]();
+      root = render();
+      expect(text(root)).toContain(expected);
+      expect(all(root).find((el) => el.dataset.fk === `planning-nav-${key}`)?.attrs['aria-current']).toBe('page');
+    }
   });
 });
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BACKUP_FORMAT, BACKUP_SCHEMA_VERSION, parseBackup, type AppBackup } from '../src/storage/backup';
+import { emptyFinance } from '../src/finance/model';
 
 const validBackup = (): AppBackup => ({
   format: BACKUP_FORMAT,
@@ -12,6 +13,7 @@ const validBackup = (): AppBackup => ({
     },
     csvFiles: [{ name: 'statement.csv', content: 'Date,Text,Amount\n', mapper: null }],
     cashEntries: [],
+    finance: emptyFinance(),
   },
 });
 

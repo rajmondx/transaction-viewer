@@ -29,6 +29,10 @@ export interface Tx {
   manualCategory?: string;
   /** Reconciliation corrections affect cash balance, not Spending totals. */
   cashAdjustment?: boolean;
+  /** Derived annotations; never parsed from CSV or used for ledger balances. */
+  categoryOverrides?: Record<string, string>;
+  internalTransfer?: boolean;
+  parentId?: string;
 }
 
 export interface CashEntry {

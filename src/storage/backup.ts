@@ -1,9 +1,11 @@
 import type { CashEntry } from '../types';
 import type { StoredCsv } from './files';
 import { listCashEntries, listCsvFiles, replaceCashEntries, replaceCsvFiles } from './files';
+import { loadFinance, saveFinance } from './files';
+import { emptyFinance, parseFinance, type FinanceData } from '../finance/model';
 
 export const BACKUP_FORMAT = 'transaction-viewer-backup';
-export const BACKUP_SCHEMA_VERSION = 2;
+export const BACKUP_SCHEMA_VERSION = 3;
 const APP_KEY_PREFIX = 'banking.';
 
 export interface AppBackup {
@@ -16,6 +18,7 @@ export interface AppBackup {
     /** Original CSV files and the mapper snapshot used to parse each one. */
     csvFiles: StoredCsv[];
     cashEntries: CashEntry[];
+    finance: FinanceData;
   };
 }
 
@@ -88,7 +91,8 @@ function validateBackupShape(value: unknown): AppBackup {
     format: BACKUP_FORMAT,
     schemaVersion: value.schemaVersion as number,
     exportedAt: typeof value.exportedAt === 'string' ? value.exportedAt : '',
-    data: { localStorage, csvFiles, cashEntries },
+    data: { localStorage, csvFiles, cashEntries,
+      finance: (value.schemaVersion as number) >= 3 ? parseFinance(value.data.finance) : emptyFinance() },
   };
 }
 
@@ -101,6 +105,9 @@ export function parseBackup(value: unknown): AppBackup {
     switch (current.schemaVersion) {
       case 1:
         current = { ...current, schemaVersion: 2, data: { ...current.data, cashEntries: [] } };
+        break;
+      case 2:
+        current = { ...current, schemaVersion: 3, data: { ...current.data, finance: emptyFinance() } };
         break;
       default:
         throw new Error(`No migration exists for backup schema version ${current.schemaVersion}`);
@@ -122,14 +129,16 @@ export async function createBackup(): Promise<AppBackup> {
     format: BACKUP_FORMAT,
     schemaVersion: BACKUP_SCHEMA_VERSION,
     exportedAt: new Date().toISOString(),
-    data: { localStorage, csvFiles: await listCsvFiles(), cashEntries: await listCashEntries() },
+    data: { localStorage, csvFiles: await listCsvFiles(), cashEntries: await listCashEntries(), finance: await loadFinance() },
   };
 }
 
 /** Restore all app-owned state. Roll back both stores if either write fails. */
 export async function restoreBackup(backup: AppBackup): Promise<void> {
+  backup = parseBackup(backup);
   const previousFiles = await listCsvFiles();
   const previousCash = await listCashEntries();
+  const previousFinance = await loadFinance();
   const previousStorage: Record<string, string> = {};
   for (let i = 0; i < window.localStorage.length; i++) {
     const key = window.localStorage.key(i);
@@ -149,11 +158,13 @@ export async function restoreBackup(backup: AppBackup): Promise<void> {
   try {
     await replaceCsvFiles(backup.data.csvFiles);
     await replaceCashEntries(backup.data.cashEntries);
+    await saveFinance(backup.data.finance);
     replaceLocalStorage(backup.data.localStorage);
   } catch (error) {
     try {
       await replaceCsvFiles(previousFiles);
       await replaceCashEntries(previousCash);
+      await saveFinance(previousFinance);
       replaceLocalStorage(previousStorage);
     } catch (rollbackError) {
       throw new Error(`Restore failed (${String(error)}); rollback also failed (${String(rollbackError)}). Reload and check your data.`);

@@ -1,4 +1,5 @@
 import type { CashEntry, Mapper } from '../types';
+import { emptyFinance, parseFinance, type FinanceData } from '../finance/model';
 
 /**
  * Uploaded CSV persistence without a server: raw file contents live in
@@ -7,7 +8,8 @@ import type { CashEntry, Mapper } from '../types';
  */
 
 const DB_NAME = 'banking';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
+const FINANCE_STORE = 'finance_decisions';
 const STORE = 'csv_files';
 const CASH_STORE = 'cash_entries';
 
@@ -29,10 +31,36 @@ function openDb(): Promise<IDBDatabase> {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'name' });
       if (!db.objectStoreNames.contains(CASH_STORE)) db.createObjectStore(CASH_STORE, { keyPath: 'id' });
+      if (!db.objectStoreNames.contains(FINANCE_STORE)) db.createObjectStore(FINANCE_STORE);
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error ?? new Error('could not open IndexedDB'));
   });
+}
+
+export async function loadFinance(): Promise<FinanceData> {
+  const db = await openDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const request = db.transaction(FINANCE_STORE, 'readonly').objectStore(FINANCE_STORE).get('decisions');
+      request.onsuccess = () => { try { resolve(request.result === undefined ? emptyFinance() : parseFinance(request.result)); } catch (error) { reject(error); } };
+      request.onerror = () => reject(request.error);
+    });
+  } finally { db.close(); }
+}
+
+export async function saveFinance(data: FinanceData): Promise<void> {
+  const validated = parseFinance(data);
+  const db = await openDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(FINANCE_STORE, 'readwrite');
+      tx.objectStore(FINANCE_STORE).put(validated, 'decisions');
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error ?? new Error('Saving finance decisions was aborted'));
+    });
+  } finally { db.close(); }
 }
 
 function withStore<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {

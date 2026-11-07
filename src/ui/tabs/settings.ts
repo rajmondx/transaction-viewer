@@ -1,6 +1,6 @@
 import { ArrowDown, ArrowUp, Braces, CalendarDays, Check, ChevronDown, ChevronRight, Copy, CreditCard, FileJson, FilePlus, FolderCog, FolderInput, FolderOutput, Inbox, ListTree, Palette, PenLine, Pencil, Plus, RefreshCw, Save, Sparkles, Star, Tag, Trash2, TriangleAlert, Undo2, X } from 'lucide';
 import type { Category, SearchRule, Settings, Tx } from '../../types';
-import { state, emit, loadActiveSettings, reloadSettingsList, selectSettings } from '../../state';
+import { state, emit, loadActiveSettings, reloadSettingsList, selectSettings, saveCategorySettings } from '../../state';
 import { emptySettings, parseSettings, serializeSettings } from '../../categories/schema';
 import { buildTree, flattenTree, UNCAT } from '../../categories/engine';
 import { auditSettings, decide, explainTx, hiddenRows, isDead, undecidedRows, type CategoryAudit, type Claimant, type ConflictReport, type Decision } from '../../categories/conflicts';
@@ -15,14 +15,18 @@ let dirty = false;
 let showRaw = false;
 let rawText = '';
 let rawError = '';
+let pendingRenames: Array<[string, string]> = [];
+let draftSource = '';
 
 function markDirty(): void {
   dirty = true;
 }
 
 function ensureDraft(): void {
-  if (!draft || draft.name !== state.activeSettingsName) {
+  if (!draft || draft.name !== state.activeSettingsName || (!dirty && draftSource !== JSON.stringify(state.settings))) {
     draft = structuredClone(state.settings);
+    draftSource = JSON.stringify(state.settings);
+    pendingRenames = [];
     dirty = false;
     showRaw = false;
     rawError = '';
@@ -411,6 +415,7 @@ function sidebar(d: Settings, report: ConflictReport): HTMLElement {
       }, Ic(Trash2, 'size-3.5'), 'Delete'),
       importInput,
     ),
+    h('p', { class: cx(C.muted, 'mt-3 text-xs') }, 'Copies/JSON exports contain category rules, not transaction edits or budgets. Edits and budgets stay attached to their bundle name; deleting a bundle retains them under Planning → Saved edits & review. Full database backup includes everything.'),
   );
 }
 
@@ -421,10 +426,11 @@ function editor(d: Settings, report: ConflictReport): HTMLElement {
 
   const saveBtn = h('button', {
     class: cx(C.btnPrimary, dirty && C.btnPulse),
-    onclick: () => {
+    onclick: async () => {
       try {
-        sstore.putSettingsText(d.name, serializeSettings(d));
-        state.settings = structuredClone(d);
+        // Unchanged finance data saves synchronously; reference migrations persist first.
+        await saveCategorySettings(d, pendingRenames);
+        pendingRenames = [];
         state.activeSettingsName = d.name;
         sstore.setActiveName(d.name);
         reloadSettingsList();
@@ -444,6 +450,7 @@ function editor(d: Settings, report: ConflictReport): HTMLElement {
     h('button', {
       class: C.btn, onclick: () => {
         draft = structuredClone(state.settings);
+        pendingRenames = [];
         openConflict = null; // the draft was replaced wholesale
         dirty = false;
         emit();
@@ -567,6 +574,7 @@ function categoryCard(
     const oldTag = cat.tag;
     if (newTag !== oldTag) {
       for (const c of d.categories) if (c.tagFather === oldTag) c.tagFather = newTag;
+      pendingRenames.push([oldTag, newTag]);
       cat.tag = newTag;
     }
     markDirty();

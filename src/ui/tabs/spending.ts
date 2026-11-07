@@ -1,5 +1,7 @@
 import { SlidersHorizontal, CalendarDays, CalendarRange, Calculator, ChartColumn, ChartPie, ChevronDown, ChevronRight, ArrowLeft, Banknote, Eye, Pin, Printer, ReceiptText, Type } from 'lucide';
 import type { Agg, Month, Tx } from '../../types';
+import { allocationRows } from '../../finance/reporting';
+import { transactionTools } from '../financeTools';
 import { cashEntryTx, cashOpeningBalance, isUncountedCashTransfer, uniqueReconciliationCategory } from '../../cash';
 import { balanceSummary } from '../balanceChart';
 import { spendingSummary } from '../spendingSummary';
@@ -155,10 +157,12 @@ function cellText(v: number, m: Measure): string {
 }
 
 /** month-level subtree aggregation: for every tag, sum of own + descendants per month */
-function subtreeByMonth(roots: TreeNode[], own: Map<string, Map<Month, Agg>>): Map<string, Map<Month, Agg>> {
+function subtreeByMonth(roots: TreeNode[], own: Map<string, Map<Month, Agg>>, txByTag: Map<string, Tx[]>): Map<string, Map<Month, Agg>> {
   const out = new Map<string, Map<Month, Agg>>();
+  const counted = new Map<string, Map<Month, Set<string>>>();
   const roll = (n: TreeNode): Map<Month, Agg> => {
     const acc = new Map<Month, Agg>();
+    const counts = new Map<Month, Set<string>>();
     const add = (mo: Month, a: Agg) => {
       const cur = acc.get(mo) ?? { debit: 0, credit: 0, count: 0 };
       cur.debit += a.debit;
@@ -166,8 +170,19 @@ function subtreeByMonth(roots: TreeNode[], own: Map<string, Map<Month, Agg>>): M
       cur.count += a.count;
       acc.set(mo, cur);
     };
-    for (const ch of n.children) for (const [mo, a] of roll(ch)) add(mo, a);
+    for (const ch of n.children) {
+      for (const [mo, a] of roll(ch)) add(mo, a);
+      for (const [mo, ids] of counted.get(ch.tag) ?? []) {
+        const set = counts.get(mo) ?? new Set<string>(); for (const id of ids) set.add(id); counts.set(mo, set);
+      }
+    }
     for (const [mo, a] of own.get(n.tag) ?? []) add(mo, a);
+    if (own.has(n.tag)) for (const tx of txByTag.get(n.tag) ?? []) {
+      const mo = monthKey(tx.bookingDate || tx.valueDate), set = counts.get(mo) ?? new Set<string>();
+      set.add(tx.parentId ?? tx.id); counts.set(mo, set);
+    }
+    for (const [mo, a] of acc) a.count = counts.get(mo)?.size ?? 0;
+    counted.set(n.tag, counts);
     out.set(n.tag, acc);
     return acc;
   };
@@ -193,7 +208,7 @@ export function renderSpending(container: HTMLElement): void {
   // user includes that category (clickable "Cash movement" badge on its row).
   const cashTags = new Set(settings.categories.filter((c) => c.cashMovement).map((c) => c.tag));
   const countedCash = new Set(view.cashInSpending.filter((t) => cashTags.has(t)));
-  const txsInRangeAll = [...state.txs, ...cashTxs].filter((t) => {
+  const txsInRangeAll = allocationRows([...state.txs, ...cashTxs], state.finance, settings).filter((t) => {
     const d = t.bookingDate || t.valueDate;
     if (view.dateFrom && d < view.dateFrom) return false;
     if (view.dateTo && d > view.dateTo) return false;
@@ -230,10 +245,10 @@ export function renderSpending(container: HTMLElement): void {
   const roots = buildTree(reportSettings);
   const flat = flattenTree(roots);
   const isHidden = (tag: string) => view.hiddenCats.includes(tag);
-  const sub = subtreeByMonth(roots, agg.own);
+  const sub = subtreeByMonth(roots, agg.own, agg.txByTag);
   // Keep dimmed matrix rows intact, but exclude their own transactions from
   // chart rollups just as the summary and footer do (children toggle separately).
-  const chartSub = subtreeByMonth(roots, new Map([...agg.own].filter(([tag]) => !isHidden(tag))));
+  const chartSub = subtreeByMonth(roots, new Map([...agg.own].filter(([tag]) => !isHidden(tag))), agg.txByTag);
   const measure = view.measure;
   const measureName = measure === 'expense' ? 'Expenses' : measure === 'income' ? 'Income' : 'Net';
   // average mode (sanitized: anything unexpected behaves as 'off')
@@ -256,6 +271,7 @@ export function renderSpending(container: HTMLElement): void {
       if (tag !== UNCAT && tag !== reconciliationCategory) catDebit += a.debit;
     }
   }
+  sCount = new Set(txsInRange.filter((t) => visibleMonths.includes(monthKey(t.bookingDate || t.valueDate)) && !isHidden(matchTx(t, reportSettings))).map((t) => t.parentId ?? t.id)).size;
   const coverage = sDebit > 0 ? (catDebit / sDebit) * 100 : 0;
 
   // ---- footer sums: per-month debit/credit over the visible categories only.
@@ -1073,7 +1089,7 @@ function renderTxsInto(el: HTMLElement, txs: Tx[], _mo: Month[]): void {
       h('span', { class: 'font-mono text-muted-foreground', text: dmy(t.bookingDate) }),
       h('span', { class: 'flex min-w-0 items-center gap-1.5' },
         t.cashEntryId ? Ic(Banknote, 'size-3.5 shrink-0 text-success') : null,
-        h('span', { class: 'truncate', text: t.text, title: t.cashEntryId ? `Cash · ${t.text}` : t.text })),
+        h('span', { class: 'truncate', text: t.text, title: t.cashEntryId ? `Cash · ${t.text}` : t.text }), transactionTools(t)),
       h('span', { class: cx('text-right tabular-nums', t.credit > 0 ? 'text-success' : 'text-danger'), text: t.credit > 0 ? `+${num2(t.credit)}` : `−${num2(t.debit)}` }),
     ));
   }

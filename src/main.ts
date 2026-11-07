@@ -9,6 +9,7 @@ import { toast } from './ui/util';
 import { Ic } from './ui/icons';
 import { renderCsvTab } from './ui/tabs/csv';
 import { renderHelp } from './ui/tabs/help';
+import { renderFinance } from './ui/tabs/finance';
 import { renderAppFooter } from './ui/footer';
 import { hasTabPrintHandler, setTabPrintHandler, triggerTabPrint } from './ui/print';
 import { hasTabExportHandler, setTabExportHandler, triggerTabExport } from './ui/exportCsv';
@@ -33,6 +34,7 @@ const RENDERERS: Record<string, (el: HTMLElement) => void> = {
   settings: renderSettings,
   csv: renderCsvTab,
   help: renderHelp,
+  finance: renderFinance,
 };
 
 /**
@@ -127,8 +129,8 @@ document.addEventListener('keydown', (e) => {
 // ---------- URL hash routing: menu clicks write history entries (#spending / #csv / #categories) ----------
 
 type TabKey = typeof state.activeTab;
-const HASH_TO_TAB: Record<string, TabKey> = { '#spending': 'spending', '#cash': 'csv', '#transactions': 'csv', '#csv': 'csv', '#categories': 'settings', '#help': 'help' };
-const TAB_TO_HASH: Record<TabKey, string> = { spending: '#spending', csv: '#transactions', settings: '#categories', help: '#help' };
+const HASH_TO_TAB: Record<string, TabKey> = { '#spending': 'spending', '#cash': 'csv', '#transactions': 'csv', '#csv': 'csv', '#categories': 'settings', '#help': 'help', '#planning': 'finance' };
+const TAB_TO_HASH: Record<TabKey, string> = { spending: '#spending', csv: '#transactions', settings: '#categories', help: '#help', finance: '#planning' };
 
 function applyHash(): void {
   const hash = location.hash;
@@ -143,6 +145,12 @@ function applyHash(): void {
   if (tab && hash !== TAB_TO_HASH[tab]) history.replaceState(null, '', TAB_TO_HASH[tab]);
 }
 
+// Reuse both navigation variants' existing appearance and keyboard behavior.
+document.querySelectorAll<HTMLButtonElement>('[data-tab="settings"]').forEach((template) => {
+  const planning = template.cloneNode(false) as HTMLButtonElement;
+  planning.dataset.tab = 'finance'; planning.textContent = 'Planning';
+  template.after(planning);
+});
 document.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((t) => {
   t.addEventListener('click', () => {
     // setting the hash pushes a history entry; the hashchange listener activates the tab

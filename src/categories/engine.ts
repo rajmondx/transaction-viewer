@@ -51,6 +51,8 @@ export function txMatchesCategory(tx: Tx, c: Category): boolean {
 
 /** First matching category wins (order = priority). Returns tag or UNCAT. */
 export function matchTx(tx: Tx, settings: Settings): string {
+  const override = tx.categoryOverrides?.[settings.name];
+  if (override) return settings.categories.some((c) => c.tag === override) ? override : UNCAT;
   if (tx.manualCategory) return settings.categories.some((c) => c.tag === tx.manualCategory) ? tx.manualCategory : UNCAT;
   for (const c of settings.categories) {
     if (txMatchesCategory(tx, c)) return c.tag;
@@ -132,6 +134,8 @@ export function aggregate(txs: Tx[], settings: Settings): Aggregation {
   const own = new Map<string, Map<Month, Agg>>();
   const txByTag = new Map<string, Tx[]>();
   const monthsSet = new Set<Month>();
+  const ownIds = new Map<string, Set<string>>();
+  const totalIds = new Set<string>();
   for (const tx of txs) {
     const tag = matchTx(tx, settings);
     const month = monthKey(tx.bookingDate || tx.valueDate);
@@ -142,21 +146,30 @@ export function aggregate(txs: Tx[], settings: Settings): Aggregation {
     const a = byMonth.get(month)!;
     a.debit += tx.debit;
     a.credit += tx.credit;
-    a.count += 1;
+    const origin = tx.parentId ?? tx.id;
+    const countKey = JSON.stringify([tag, month]);
+    const ids = ownIds.get(countKey) ?? new Set<string>();
+    ids.add(origin); ownIds.set(countKey, ids); a.count = ids.size;
+    totalIds.add(origin);
     if (!txByTag.has(tag)) txByTag.set(tag, []);
     txByTag.get(tag)!.push(tx);
   }
   const months = Array.from(monthsSet).sort();
   const tree = buildTree(settings);
   const subtree = new Map<string, { debit: number; credit: number; count: number }>();
+  const subtreeIds = new Map<string, Set<string>>();
   const roll = (n: TreeNode): { debit: number; credit: number; count: number } => {
     let d = 0, c = 0, k = 0;
+    const ids = new Set((txByTag.get(n.tag) ?? []).map((t) => t.parentId ?? t.id));
     for (const ch of n.children) {
       const r = roll(ch);
       d += r.debit; c += r.credit; k += r.count;
+      for (const id of subtreeIds.get(ch.tag) ?? []) ids.add(id);
     }
     const ownM = own.get(n.tag);
     if (ownM) for (const a of ownM.values()) { d += a.debit; c += a.credit; k += a.count; }
+    k = ids.size;
+    subtreeIds.set(n.tag, ids);
     const val = { debit: d, credit: c, count: k };
     subtree.set(n.tag, val);
     return val;
@@ -166,6 +179,7 @@ export function aggregate(txs: Tx[], settings: Settings): Aggregation {
   for (const m of own.values()) {
     for (const a of m.values()) { td += a.debit; tc += a.credit; tk += a.count; }
   }
+  tk = totalIds.size;
   return { own, subtree, txByTag, months, totals: { debit: td, credit: tc, count: tk } };
 }
 

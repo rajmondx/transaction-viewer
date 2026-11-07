@@ -1,6 +1,6 @@
 import type { CashEntry, CsvFileInfo, Mapper, Settings, SettingsFileInfo, Tx } from './types';
 import { defaultCsvFilter, type CsvFilter } from './ui/search';
-import { emptySettings } from './categories/schema';
+import { emptySettings, parseSettings, serializeSettings } from './categories/schema';
 import * as sstore from './storage/settings';
 import { allMappers } from './storage/mappers';
 import { deleteCashEntry, deleteCsvFile, listCashEntries, listCsvFiles, putCashEntry, putCsvFile, replaceCashEntries, type StoredCsv } from './storage/files';
@@ -9,6 +9,9 @@ import { detectBestMapper, parseCsvHeaders } from './csv/schemas';
 import { DEMO_FILE_NAME } from './seed/demoCsv';
 import { withoutDemoCashEntries } from './seed/demoCash';
 import { toast } from './ui/util';
+import { emptyFinance, parseFinance, renameFinanceCategories, type FinanceData } from './finance/model';
+import { annotateRows } from './finance/reporting';
+import { loadFinance, saveFinance } from './storage/files';
 
 /**
  * Average display mode (mutually exclusive — each turns the other off):
@@ -77,6 +80,7 @@ export function saveSpendingView(name: string, v: SpendingView): void {
 }
 
 export interface AppState {
+  finance: FinanceData;
   txs: Tx[];
   cashEntries: CashEntry[];
   files: CsvFileInfo[];
@@ -87,10 +91,11 @@ export interface AppState {
   settings: Settings;
   csvFilter: CsvFilter;
   spendingView: SpendingView;
-  activeTab: 'spending' | 'settings' | 'csv' | 'help';
+  activeTab: 'spending' | 'settings' | 'csv' | 'help' | 'finance';
 }
 
 export const state: AppState = {
+  finance: emptyFinance(),
   txs: [],
   cashEntries: [],
   files: [],
@@ -110,7 +115,41 @@ export function subscribe(fn: () => void): () => void {
   return () => listeners.delete(fn);
 }
 export function emit(): void {
+  state.txs = annotateRows(state.txs, state.finance, state.settings);
   listeners.forEach((fn) => fn());
+}
+
+/** Persist first; a failed write must not look like a successful edit. */
+let financeWrites: Promise<void> = Promise.resolve();
+let financeReadOnly = false;
+export function updateFinance(change: (data: FinanceData) => void): Promise<void> {
+  const task = financeWrites.then(async () => {
+    if (financeReadOnly) throw new Error('Finance decisions could not be loaded. Reload or restore a backup before editing them.');
+    const next = structuredClone(state.finance);
+    change(next);
+    const committed = parseFinance(next); // detach editor-owned arrays before async persistence
+    await saveFinance(committed);
+    state.finance = committed;
+    emit();
+  });
+  financeWrites = task.catch(() => {});
+  return task;
+}
+
+export async function saveCategorySettings(settings: Settings, renames: Array<[string, string]>): Promise<void> {
+  settings = parseSettings(serializeSettings(settings), settings.name);
+  const next = structuredClone(state.finance);
+  renameFinanceCategories(next, settings.name, renames);
+  const changed = JSON.stringify(next) !== JSON.stringify(state.finance);
+  const previous = state.finance;
+  if (changed) await updateFinance((data) => renameFinanceCategories(data, settings.name, renames));
+  try { sstore.putSettingsObj(settings); }
+  catch (error) {
+    if (changed) { await saveFinance(previous); state.finance = previous; }
+    throw error;
+  }
+  state.settings = structuredClone(settings);
+  emit();
 }
 
 export function reloadSettingsList(): void {
@@ -150,7 +189,7 @@ export async function selectSettings(name: string): Promise<void> {
 export function reingestAll(notify = true): IngestResult {
   const result = ingestFiles(state.loaded);
   state.files = result.files;
-  state.txs = result.txs;
+  state.txs = annotateRows(result.txs, state.finance, state.settings);
   if (result.warnings.length > 0) console.warn('CSV warnings:', result.warnings);
   if (notify) {
     if (result.needsMapper.length > 0) {
@@ -226,5 +265,7 @@ export async function bootstrap(): Promise<void> {
   } catch {
     state.loaded = []; // no IndexedDB (e.g. private mode): session-only uploads
   }
+  try { state.finance = await loadFinance(); financeReadOnly = false; }
+  catch (error) { financeReadOnly = true; toast(`Could not load saved finance decisions: ${String(error)}. Existing decisions will not be overwritten.`, 'err'); }
   if (state.loaded.length > 0) reingestAll(false);
 }

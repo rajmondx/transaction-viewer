@@ -1,7 +1,9 @@
 import { ArrowUpDown, Banknote, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronUp, FileSpreadsheet, ListFilter, Printer, RotateCcw, Search, Tags, Type, Wand2 } from 'lucide';
 import type { IconNode } from 'lucide';
 import type { Tx } from '../../types';
-import { allTransactionRows, calculateCashBalances, cashOpeningBalance, compareTransactionOrder, isCashTransfer, matchesTransactionSource } from '../../cash';
+import { financeRows, transactionTools } from '../financeTools';
+import { allocationRows } from '../../finance/reporting';
+import { calculateCashBalances, cashOpeningBalance, compareTransactionOrder, isCashTransfer, matchesTransactionSource } from '../../cash';
 import { calculateCombinedBalances } from '../../balanceOverview';
 import { renderCash } from './cash';
 import { bankAccountKey, calculateAccountBalances, calculatedAccountEndings, groupBankAccounts, loadAccountOpeningBalances, removeAccountOpeningBalance, saveAccountOpeningBalance } from '../../bankBalances';
@@ -210,7 +212,7 @@ export function renderCsvTab(container: HTMLElement): void {
   clearColumnSelect(); // a re-render drops the marked cells; remove the leftover copy buffer too
   clear(container);
   const f: CsvFilter = state.csvFilter;
-  const allTxs = allTransactionRows(state.txs, state.cashEntries);
+  const allTxs = financeRows();
   const bankAccounts = groupBankAccounts(state.txs);
   const accountOpenings = loadAccountOpeningBalances();
   const transactionBalances = calculateAccountBalances(state.txs, accountOpenings);
@@ -580,6 +582,12 @@ export function renderCsvTab(container: HTMLElement): void {
           const td = h('td', { class: cx(C.td, CELL), title: t.text, text: '' });
           td.innerHTML = highlight(t.text, f.fuzzy ? '' : f.text, f.caseSensitive);
           td.appendChild(h('span', { class: cx(C.badgeMuted, 'ml-1'), text: t.cashEntryId ? 'Cash' : isCashTransfer(t, state.settings) ? 'Cash transfer' : 'Bank' }));
+          if (t.internalTransfer) td.append(h('span', { class: C.chipWarn }, 'Internal transfer · excluded'));
+          if (t.categoryOverrides?.[state.activeSettingsName]) td.append(h('span', { class: C.badgeMuted }, 'Manual category'));
+          const parts = state.finance.bundles[state.activeSettingsName]?.annotations[t.id]?.parts;
+          if (parts) td.append(h('details', {}, h('summary', { class: 'cursor-pointer text-xs' }, `Split (${parts.length} parts)`),
+            ...parts.map((p) => h('div', { class: 'text-xs whitespace-normal' }, `${p.category} · ${num2(p.amount)} · ${p.note}`))));
+          td.append(transactionTools(t));
           tr.appendChild(td);
           break;
         }
@@ -688,8 +696,10 @@ export function renderCsvTab(container: HTMLElement): void {
    *  column while merged), every filtered row in the current sort order — or just
    *  the current page when the dialog says so. Amounts are plain signed numbers,
    *  dates as displayed (dd.mm.yyyy). */
-  function exportCsvTable(pageOnly: boolean): void {
-    const source = pageOnly ? pageRows : filtered;
+  function exportCsvTable(pageOnly: boolean, allocations = false): void {
+    const originals = pageOnly ? pageRows : filtered;
+    const originalIds = new Set(originals.map((t) => t.id));
+    const source = allocations ? allocationRows(allTxs, state.finance, state.settings).filter((t) => originalIds.has(t.parentId ?? t.id)) : originals;
     const cell = (c: ColDef, t: Tx): string => {
       switch (c.key) {
         case 'date': return dmy(t.bookingDate);
@@ -706,8 +716,8 @@ export function renderCsvTab(container: HTMLElement): void {
         }
       }
     };
-    const rows: string[][] = [shown.map((c) => c.label)];
-    for (const t of source) rows.push(shown.map((c) => cell(c, t)));
+    const rows: string[][] = [[...(allocations ? ['Transaction ID', 'Parent ID', 'Row kind'] : []), ...shown.map((c) => c.label)]];
+    for (const t of source) rows.push([...(allocations ? [t.id, t.parentId ?? '', t.parentId ? 'allocation' : 'original'] : []), ...shown.map((c) => cell(c, t))]);
     downloadCsv(`transactions-${fileStamp()}.csv`, rows);
     toast(`Exported ${num0(source.length)} transactions`);
   }
@@ -722,6 +732,7 @@ export function renderCsvTab(container: HTMLElement): void {
     }
     const scopeAll = printRadio(`All filtered rows (${num0(filtered.length)})`, 'csv-export-scope', true, 'every row matching the current filters, not just this page');
     const scopePage = printRadio(`Current page only (${num0(pageRows.length)})`, 'csv-export-scope', false, 'just the rows of the page you are looking at');
+    const allocations = printCheck('Allocation detail instead of original ledger rows', false, 'Splits replace parents; confirmed internal transfers are omitted. Includes transaction/parent IDs. Balance values apply only to original ledger rows.');
     const sortLabel = ui.sortKey === 'date' ? `Booking date — ${ui.sortDir === 1 ? 'oldest' : 'newest'} first`
       : ui.sortKey === 'amount' ? `Amount — ${ui.sortDir === 1 ? 'smallest' : 'largest'} first`
       : `Description — ${ui.sortDir === 1 ? 'A → Z' : 'Z → A'}`;
@@ -737,12 +748,13 @@ export function renderCsvTab(container: HTMLElement): void {
     const pill = (t: string): HTMLElement => h('span', { class: 'border border-border bg-subtle px-2 py-0.5 text-xs', text: t });
     const controls = h('div', { class: 'flex flex-col gap-2.5' },
       field('Rows', ListFilter, scopeAll.el, scopePage.el),
+      allocations.el,
       field('Order', ArrowUpDown, pill(sortLabel)),
       field('Columns', FileSpreadsheet, ...shown.map((c) => pill(c.label))),
       filterLines.length > 0 ? field('Active filters', Search, ...filterLines.map(pill)) : null,
       h('p', { class: cx(C.muted, 'text-[12.5px]') },
         'One line per row, comma-separated; amounts as plain signed numbers (1234.50 / -1234.50), dates dd.mm.yyyy, UTF-8 with BOM so Excel opens it cleanly.'));
-    openPrintModal('Export transaction table as CSV', controls, () => exportCsvTable(scopePage.rb.checked), 'Download CSV');
+    openPrintModal('Export transaction table as CSV', controls, () => exportCsvTable(scopePage.rb.checked, allocations.cb.checked), 'Download CSV');
   }
 
   function openPrintDialog(): void {
@@ -769,6 +781,7 @@ export function renderCsvTab(container: HTMLElement): void {
     const datesMergeChk = printCheck('Merge Booking + Value date', printOpts.datesMerged, 'one date column; valuta on a second line when the dates differ');
     const scopeAll = printRadio(`All filtered rows (${num0(filtered.length)})`, 'csv-print-scope', true);
     const scopePage = printRadio(`Current page only (${num0(pageRows.length)})`, 'csv-print-scope', false);
+    const allocations = printCheck('Allocation detail instead of original ledger rows', false, 'Split children replace original parents; confirmed internal transfers are omitted. Parent ID is included in descriptions. Balances belong only to original ledger rows.');
     const sortAs = printRadio('As shown', 'csv-print-sort', printOpts.sort === 'as', 'keep the current table sort order');
     const sortNew = printRadio('Newest first', 'csv-print-sort', printOpts.sort === 'newest', 'booking date descending');
     const sortOld = printRadio('Oldest first', 'csv-print-sort', printOpts.sort === 'oldest', 'booking date ascending');
@@ -794,6 +807,7 @@ export function renderCsvTab(container: HTMLElement): void {
       field('Description', Tags, catMergeChk.el),
       field('Dates', CalendarRange, datesMergeChk.el),
       field('Rows', ListFilter, scopeAll.el, scopePage.el),
+      allocations.el,
       field('Sort by booking date', ArrowUpDown, sortAs.el, sortNew.el, sortOld.el),
       field('Page', Printer, landscapeChk.el, pageNumsChk.el, date.el),
       field('Font', Type, font.el),
@@ -854,6 +868,11 @@ export function renderCsvTab(container: HTMLElement): void {
         return;
       }
       let rows: Tx[] = scopePage.rb.checked ? pageRows : filtered;
+      if (allocations.cb.checked) {
+        const ids = new Set(rows.map((t) => t.id));
+        rows = allocationRows(allTxs, state.finance, state.settings).filter((t) => ids.has(t.parentId ?? t.id)).map((t) =>
+          t.parentId ? { ...t, text: `[allocation of ${t.parentId}] ${t.text}` } : t);
+      }
       const sort: 'as' | 'newest' | 'oldest' = sortNew.rb.checked ? 'newest' : sortOld.rb.checked ? 'oldest' : 'as';
       if (sort !== 'as') {
         rows = [...rows].sort((a, b) => (sort === 'newest' ? b.bookingDate.localeCompare(a.bookingDate) : a.bookingDate.localeCompare(b.bookingDate)));

@@ -206,6 +206,8 @@ export function demoCsv(today: Date = new Date(), seed: number = SEED): string {
     const monthName = MONTH_NAMES[m - 1];
     const refPrefix = `ZV${y}${pad(m)}X`;
     for (const row of monthRows(r, y, m, monthName, refPrefix)) {
+      // A synthetic price increase makes recurring-payment insights demonstrable.
+      if (back === 0 && row.text === 'Direct debit Sunrise Fibre 500 internet subscription') row.debit = 79.9;
       const acc = ACCOUNTS[row.account ?? 'everyday'];
       const bookingDay = Math.min(row.day, daysInMonth);
       const booking = `${pad(bookingDay)}.${pad(m)}.${y}`;

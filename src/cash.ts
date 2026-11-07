@@ -47,7 +47,9 @@ export function compareTransactionOrder(a: Tx, b: Tx): number {
 }
 
 export function movementOf(tx: Tx, settings: Settings): { type: 'withdrawal' | 'deposit'; category: Category } | null {
-  const category = settings.categories.find((c) => c.tag === matchTx(tx, settings));
+  // One-off reporting corrections must not invent/remove wallet movements.
+  // Cash transfer designation continues to come from the category rules.
+  const category = settings.categories.find((c) => c.tag === matchTx({ ...tx, categoryOverrides: undefined }, settings));
   return category?.cashMovement ? { type: category.cashMovement, category } : null;
 }
 

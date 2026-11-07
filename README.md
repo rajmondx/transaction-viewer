@@ -66,6 +66,17 @@ Built for GitHub Pages — the whole app is the static files in `dist/`.
   Removing the demo statement also removes its sample cash entries, without touching your own cash data.
 - Straight corners, zebra-striped tables, full-width layout, light/dark theme, installable PWA.
 
+## Corrections, transfers and planning
+
+- **Edit** on a transaction or Spending drill-down offers **Only this transaction**, **Create a rule for similar ones** (with change preview), **Reset to rules**, and reversible **split transactions**. Splits require at least two positive parts summing exactly to the original amount. Original bank/cash ledger values remain unchanged; reports use the parts instead of the parent.
+- **Planning → Internal transfers** suggests equal opposite payments across identified accounts. Confirm before exclusion, reject suggestions, pair manually, or unlink. Confirmed transfers stay in the ledger but not Spending, budgets or recurring detection. Missing/incompatible legs deactivate exclusion. Verify account ownership and currency: there is no currency-conversion model.
+- **Planning → Recurring payments** detects weekly/fortnightly/monthly/quarterly/annual patterns locally. Review candidates, confirm/dismiss/end, correct cadence and fixed/variable classification, create manually, merge groups or split selected payments. Fixed-price insights flag changes exceeding the greater of 1.00 or 3% from prior stable payments. Variable bills show ranges instead. Only confirmed outgoing series contribute to estimated commitments. Forecasts are not booked spending or live bank monitoring; incomplete imports do not prove a bill is overdue.
+- **Planning → Budgets** sets default monthly category expense limits and month overrides. Actuals use all eligible bank/cash gross expenses for the selected month, regardless of chart visibility or search/paging. Credits/refunds remain separate; transfers, reconciliations and forecasts are excluded. Parent actuals include children; overlapping limits are not summed. No rollover in this version.
+- Overrides, splits and budgets belong to their category bundle; transfer links and recurring decisions belong to the dataset. Form-editor category renames migrate references. Raw JSON replacement does not infer renames; missing references remain visible under **Saved edits & review**. Bundle copies contain rules only, and deleted bundles' finance decisions remain recoverable by bundle name.
+- **CSV export / print** can use original transaction-ledger rows or allocation detail. Detail replaces split parents and omits confirmed internal transfers; CSV includes parent IDs and row kinds. Overall transaction counts count originals once; an original may participate in multiple category counts.
+- **Database → Export full backup** includes all new decisions (backup schema 3, with migrations for versions 1–2). Keep backups: reimports retain edits only when transaction identities remain stable, and clearing site data deletes local storage. Missing or invalid annotations are retained for review rather than guessed onto other payments.
+- After loading the synthetic demo statement, **Planning → Try planning with sample data** can add explicit examples for all five features. The demo internet subscription has a price increase in its latest month. No financial data leaves the browser.
+
 ## Run
 
 ```
@@ -237,7 +248,7 @@ Income / Expenses / Net totals footer off. Output is black-on-white, hidden cate
 | Print dialog options (per page) + shared font/size | localStorage `banking.csvPrintOpts`, `banking.spendingPrintOpts`, `banking.printStyle` |
 | "Add CSV into prompt" preference (data stays local unless you paste it) | localStorage `banking.aiIncludeCsv` |
 
-Clearing site data wipes everything; use Export JSON / keep your CSVs for backup.
+Clearing site data wipes everything; use **Database → Export full backup** to preserve transactions and all decisions. Category JSON exports contain rules only.
 
 ## License
 

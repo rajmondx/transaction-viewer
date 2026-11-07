@@ -23,6 +23,7 @@ export function buildSpendingDays(
 ): SpendingDay[] {
   const hidden = new Set(hiddenCats), months = new Set(visibleMonths);
   const days = new Map<string, SpendingDay>();
+  const ids = new Map<string, Set<string>>();
   for (const [tag, txs] of txByTag) {
     if (hidden.has(tag)) continue;
     for (const tx of txs) {
@@ -32,7 +33,8 @@ export function buildSpendingDays(
       day.income += tx.credit;
       day.expenses += tx.debit;
       day.net += tx.credit - tx.debit;
-      day.transactions++;
+      const seen = ids.get(date) ?? new Set<string>(); seen.add(tx.parentId ?? tx.id); ids.set(date, seen);
+      day.transactions = seen.size;
       if (tag !== UNCAT && tag !== reconciliationCategory) day.categorizedAmount += tx.debit;
       days.set(date, day);
     }

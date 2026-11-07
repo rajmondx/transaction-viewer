@@ -46,7 +46,7 @@ export function openDbModal(): void {
       h('h3', { class: 'flex items-center gap-2 text-[15px] font-semibold' }, Ic(Database, 'size-4'), 'Database backup'),
       h('button', { class: cx(C.btn, 'ml-auto px-2 py-1'), onclick: closeModal, title: 'Close (Esc)' }, Ic(X, 'size-3.5'))),
     h('p', { class: cx(C.muted, 'mb-3 text-[12.5px]') },
-      'Export a complete backup of your transactions, cash entries, CSV files, categories, settings, schemas, and saved preferences. Backups stay on your device; the JSON file contains sensitive financial data.'),
+      'Export a complete backup of your transactions, cash entries, CSV files, categories, settings, schemas, saved preferences, category corrections, splits, transfer decisions, recurring series and budgets. Backups stay on your device; the JSON file contains sensitive financial data.'),
     h('div', { class: 'mb-4 grid grid-cols-2 gap-x-4 gap-y-1 bg-muted/40 p-3 text-[12px] sm:grid-cols-4' },
       h('span', { class: C.muted, text: 'Transactions' }), h('strong', { text: (state.txs.length + state.cashEntries.length).toLocaleString() }),
       h('span', { class: C.muted, text: 'CSV files' }), h('strong', { text: state.loaded.length.toLocaleString() }),

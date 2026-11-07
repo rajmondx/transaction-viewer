@@ -47,9 +47,28 @@ export function renderHelp(container: HTMLElement): void {
       // ---- FAQ ----
       h('h3', { class: 'mb-1 mt-2 flex items-center gap-2 text-[15px] font-semibold' }, Ic(HelpCircle, 'size-4'), 'FAQ'),
 
+      faq('How do I correct a category or split a payment?',
+        p('Use ', b('Edit'), ' next to a transaction or inside a Spending drill-down. ', b('Only this transaction'), ' saves a correction in the active category bundle; ', b('Reset to rules'), ' removes it. ', b('Create a rule for similar ones'), ' previews effective category changes before saving. Earlier categories still win unless you explicitly change priority. Replacing constrained category rules requires explicit permission.'),
+        p('Split an expense or income into two or more positive parts whose amounts equal the original exactly. Parts replace the parent in Spending and budgets, not in the bank/cash ledger. Rules do not overwrite split categories. Removing the split restores the previous category correction or rule result. Transfers and reconciliation adjustments cannot be split.'),
+        p('The Transactions table keeps the original row with expandable split details. CSV export and print offer original ledger rows or allocation detail; never add both together. Overall transaction counts count each original once, even when it participates in several categories.'),
+        p('Overrides, splits and budgets are scoped to the category bundle. Form-editor category renames carry their references; raw JSON replacement cannot infer a rename. Missing categories/payments are retained under ', b('Planning → Saved edits'), '. Reimports preserve edits when transaction identities are unchanged; files without IDs and changed mappings can require manual review.')),
+
+      faq('How do internal transfers work?',
+        p(b('Planning → Internal transfers'), ' suggests equal opposite movements on different identified accounts within a date window. Confirm or reject each pair; nothing is excluded automatically. You can also pair rows manually, unlink a pair or reset rejected suggestions.'),
+        p('Confirmed pairs are excluded from Spending, budgets and recurring detection, but remain visible in the original Transactions ledger and keep their original account balances. A missing/incompatible leg makes the exclusion inactive until resolved. Cash transfers, split payments, unequal amounts and currency conversion are not supported by internal matching. Verify account ownership and currency: the current CSV model has no separate currency field.')),
+
+      faq('How are subscriptions and recurring bills detected?',
+        p(b('Planning → Recurring payments'), ' groups normalized descriptions by account and direction and checks weekly, fortnightly, monthly, quarterly and annual timing. Most suggestions need three observations; sparse long-interval candidates are labeled low confidence. Confirm/dismiss, edit name/cadence/variable status, merge mistaken groups or split selected payments into explicit series. You can create a series manually.'),
+        p('Fixed-price series highlight a likely change from prior stable payments when it exceeds the greater of 1.00 or 3%. Variable bills show observed ranges instead. Only confirmed outgoing series contribute to estimated monthly commitments; income, candidates and ended/dismissed series remain separate. Split parts never become extra recurring payments.'),
+        p('Expected dates and monthly/yearly costs are estimates based on available imports, not live monitoring or future ledger entries. Missing history is not proof of an overdue payment. There are no external services or background notifications.')),
+
+      faq('How do category budgets work?',
+        p(b('Planning → Budgets'), ' lets you set a default monthly expense limit and overrides for individual months. Actuals include all eligible bank/cash expenses in that calendar month, independent of table search/paging and hidden chart categories. Credits/refunds are separate, not netted against gross expenses; transfers, reconciliation corrections and recurring forecasts are excluded.'),
+        p('Parent budgets include descendant allocations. Parent and child limits may overlap, so they are not summed into a misleading overall limit. Zero budgets are allowed and there is no rollover. Budgets and every saved finance decision are included in ', b('Database → Export full backup'), '; category JSON exports contain rules only.')),
+
       faq('Where is my data saved?',
         p('Uploaded statements and cash entries live in ', b('IndexedDB'), '; your category settings, filters, table layout and theme in ', b('localStorage'), ' — both are browser storage on this device only. Nothing is ever uploaded.'),
-        p('Caveat: clearing the site data in your browser deletes the transactions as well. Keep a backup of your category settings via ', b('Categories → Export JSON'), ', and you can always re-import the same CSV files.')),
+        p('Caveat: clearing site data deletes transactions and saved decisions. Use ', b('Database → Export full backup'), ' to preserve CSVs, categories, cash entries, corrections, splits, transfer decisions, recurring series, budgets and preferences together. Category JSON alone is not a complete backup.')),
 
       faq('Which CSV files can I upload?',
         p('The export layout of Alternative Bank Schweiz (and similar Swiss bank exports) is built in. Add statements with the ', b('Add CSV'), ' button (top right, or on the CSV page) — or just drop one or more files anywhere on the page, on any tab. A page without data shows a ', b('Upload first a CSV'), ' box: clicking it opens the same file picker. Multiple files and multiple banks at once are fine, they are merged into one list.'),
