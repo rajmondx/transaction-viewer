@@ -2,7 +2,7 @@ import { SlidersHorizontal, CalendarDays, CalendarRange, Calculator, ChartColumn
 import type { IconNode } from 'lucide';
 import type { Agg, Month, Tx } from '../../types';
 import { cashEntryTx, cashOpeningBalance, isUncountedCashTransfer, uniqueReconciliationCategory } from '../../cash';
-import { buildBalanceOverview } from '../../balanceOverview';
+import { balanceSummary } from '../balanceChart';
 import { state, selectSettings, saveSpendingView, emit, type AvgMode } from '../../state';
 import { aggregate, buildTree, flattenTree, matchTx, monthsFromTxs, UNCAT, type TreeNode } from '../../categories/engine';
 import { C, clear, cx, dmy, field, h, money, monthLabel, monthKey, num0, num2, sourceGroup, toast } from '../util';
@@ -184,7 +184,6 @@ export function renderSpending(container: HTMLElement): void {
   }
   const settings = state.settings;
   const view = state.spendingView;
-  const balanceOverview = buildBalanceOverview(state.txs, state.cashEntries, settings, cashOpeningBalance());
 
   const reconciliationCategory = uniqueReconciliationCategory(settings);
   const cashTxs = state.cashEntries.map((entry) => cashEntryTx(entry, reconciliationCategory));
@@ -243,18 +242,7 @@ export function renderSpending(container: HTMLElement): void {
   /** Average = row Total ÷ number of visible (selected) months, zero months included */
   const averageOf = (total: number): number => (visibleMonths.length > 0 ? total / visibleMonths.length : 0);
 
-  const balanceCards = h('section', { class: 'mb-3' },
-    h('h2', { class: 'mb-2 text-sm font-semibold' }, 'Balance summary'),
-    h('div', { class: 'grid grid-cols-[repeat(auto-fit,minmax(165px,1fr))] gap-2' },
-      summaryCard('Total balance', `${balanceOverview.unanchoredAccounts.length > 0 ? 'Δ ' : ''}${money(balanceOverview.combinedBalance)}`, balanceOverview.combinedBalance < 0 ? 'text-danger' : '', Banknote),
-      summaryCard('Cash balance', money(balanceOverview.cashBalance), balanceOverview.cashBalance < 0 ? 'text-danger' : '', Banknote),
-      summaryCard('Bank balance', `${balanceOverview.unanchoredAccounts.length > 0 ? 'Δ ' : ''}${money(balanceOverview.bankBalance)}`, balanceOverview.bankBalance < 0 ? 'text-danger' : '', ArrowLeftRight),
-    ),
-    h('div', { class: cx(C.card, 'mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-3.5 py-2.5 text-xs') },
-      balanceOverview.unanchoredAccounts.length > 0
-        ? h('span', { class: C.muted }, `Δ is an estimate: accounts without opening balances use net movement from zero. Set opening balances in Transactions for actual bank and total balances. Missing anchors: ${balanceOverview.unanchoredAccounts.join(', ')}.`)
-        : h('span', { class: C.muted, text: 'Opening balances, imported transactions, cash activity and reconciliation corrections are reflected here. Spending filters below affect only the report.' })));
-  container.appendChild(balanceCards);
+  container.appendChild(balanceSummary(state.txs, state.cashEntries, settings, cashOpeningBalance()));
 
   // ---- summary (always at top, reflects the current view) ----
   let sDebit = 0, sCredit = 0, sCount = 0, catDebit = 0;
