@@ -394,3 +394,141 @@ describe('Spending summary timeline', () => {
     expect(readout()).toContain('Transactions: 1');
   });
 });
+
+describe('Share category trends', () => {
+  async function fixture(options: { subs?: boolean; measure?: 'expense' | 'income' | 'net'; hiddenCats?: string[]; hiddenMonths?: string[] } = {}) {
+    const { categoryTrends } = await import('../src/ui/categoryTrends');
+    const { parseSettings } = await import('../src/categories/schema');
+    const { aggregate, buildTree } = await import('../src/categories/engine');
+    const { parseWithMapper } = await import('../src/csv/parse');
+    const settings = parseSettings(JSON.stringify({ categories: [
+      { tag: 'Housing' }, { tag: 'Rent', tag_father: 'Housing', search_tag: ['rent'] },
+      { tag: 'Utilities', tag_father: 'Rent', search_tag: ['utility'] },
+      { tag: 'Food', search_tag: ['food'] }, { tag: 'Salary', search_tag: ['salary'] },
+      ...Array.from({ length: 13 }, (_, i) => ({ tag: `Extra ${i}` })),
+    ] }), 'test');
+    const rows = parseWithMapper('Date,Description,Amount\n2026-01-01,salary,1000\n2026-01-02,rent,-80\n2026-01-03,utility,-20\n2026-01-04,food,-100\n2026-02-01,rent,-100\n2026-02-02,food,-100', 'test.csv', {
+      name: 'Custom', columns: { bookingDate: 'Date', text: 'Description', amount: 'Amount' },
+    }).txs;
+    const agg = aggregate(rows, settings), roots = buildTree(settings);
+    const measure = options.measure ?? 'expense';
+    const amount = (tag: string) => {
+      const a = agg.subtree.get(tag)!;
+      return measure === 'expense' ? a.debit : measure === 'income' ? a.credit : a.credit - a.debit;
+    };
+    const root = categoryTrends({
+      items: [
+        { name: 'Housing', color: '#5577aa', value: amount('Housing') },
+        ...(options.subs === false ? [] : [{ name: 'Rent', color: '#5577aa', value: amount('Rent'), depth: 1 }]),
+        { name: 'Food', color: '#55aa77', value: amount('Food') },
+      ], measure, measureName: measure === 'expense' ? 'Expenses' : measure === 'income' ? 'Income' : 'Net',
+      total: roots.reduce((sum, root) => sum + amount(root.tag), 0),
+      denominator: roots.reduce((sum, root) => sum + Math.abs(amount(root.tag)), 0),
+      roots, txByTag: agg.txByTag, scopeRows: rows, hiddenCats: options.hiddenCats ?? [],
+      visibleMonths: ['2026-01', '2026-02'].filter((month) => !options.hiddenMonths?.includes(month)), hiddenMonths: options.hiddenMonths ?? [], dateFrom: '', dateTo: '',
+    }) as unknown as ElementStub;
+    const get = (fk: string) => all(root).find((el) => el.dataset.fk === fk)!;
+    const click = (fk: string) => get(fk).events.click.forEach((fn) => fn());
+    const row = (tag: string) => all(root).find((el) => el.attrs['data-category'] === tag)!;
+    const selectRow = (tag: string) => row(tag).onclick!();
+    const add = (tag: string) => { get('category-picker').value = tag; get('category-picker').onchange!(); };
+    const svg = () => all(root).find((el) => el.tag === 'svg' && el.attrs['aria-label']?.startsWith('Category trends in'))!;
+    const readout = () => text(all(root).find((el) => 'data-category-readout' in el.attrs)!);
+    return { root, get, click, row, selectRow, add, svg, readout };
+  }
+
+  it('toggles categories and subcategories into one chart with active rows and removable path labels', async () => {
+    const { root, row, selectRow, click, svg, readout } = await fixture();
+    expect(svg()).toBeUndefined();
+    selectRow('Housing'); selectRow('Rent');
+    expect(row('Housing').attrs['aria-pressed']).toBe('true');
+    expect(row('Rent').attrs['aria-pressed']).toBe('true');
+    expect(all(svg()).filter((el) => el.attrs['data-category-line']).map((el) => el.attrs['data-category-line'])).toEqual(['Housing', 'Rent']);
+    expect(readout()).toContain('Housing: CHF 200.00');
+    expect(readout()).toContain('Housing › Rent: CHF 200.00');
+    expect(text(root)).toContain('parent and child lines overlap');
+    click('category-remove-Rent');
+    expect(row('Rent').attrs['aria-pressed']).toBe('false');
+    selectRow('Housing');
+    expect(svg()).toBeUndefined();
+  });
+
+  it('adds deep, zero-valued and non-top-12 categories from the picker and retains lines when subcategories disappear', async () => {
+    const { root, add, svg, readout } = await fixture();
+    expect(text(root)).toContain('Extra 12');
+    add('Utilities'); add('Extra 12');
+    expect(readout()).toContain('Housing › Rent › Utilities: CHF 20.00');
+    expect(readout()).toContain('Extra 12: CHF 0.00');
+    expect(all(svg()).filter((el) => el.attrs['data-category-line'])).toHaveLength(2);
+    const rerendered = await fixture({ subs: false });
+    expect(rerendered.row('Rent')).toBeUndefined();
+    expect(rerendered.readout()).toContain('Housing › Rent › Utilities');
+    rerendered.click('category-clear');
+    expect(rerendered.svg()).toBeUndefined();
+  });
+
+  it('switches CHF and % without changing the all-category denominator and preserves signed Net readouts', async () => {
+    const { selectRow, click, readout, svg } = await fixture();
+    selectRow('Housing'); click('category-unit-%');
+    expect(readout()).toContain('Housing: 50.00% · CHF 200.00');
+    selectRow('Food');
+    expect(readout()).toContain('Housing: 50.00%');
+    expect(readout()).toContain('Food: 50.00%');
+    expect(svg().attrs['aria-label']).toContain('Category trends in %');
+    const net = await fixture({ measure: 'net' });
+    expect(net.readout()).toContain('Housing: 14.29% · CHF -200.00');
+    net.click('category-unit-CHF');
+    expect(net.readout()).toContain('Housing: CHF -200.00 · 14.29%');
+    net.svg().onkeydown!({ key: 'Home', preventDefault: () => {} });
+    expect(net.readout()).toContain('Housing: CHF -100.00');
+  });
+
+  it('shares all spacings and dates and synchronizes keyboard, pointer and range readouts', async () => {
+    const { selectRow, click, get, svg, readout } = await fixture();
+    selectRow('Housing'); selectRow('Food');
+    for (const spacing of ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Yearly']) {
+      click(`category-spacing-${spacing}`);
+      expect(get(`category-spacing-${spacing}`).attrs['aria-pressed']).toBe('true');
+    }
+    expect(all(svg()).some((el) => el.tag === 'circle' && el.attrs.r === '3')).toBe(true);
+    click('category-spacing-Monthly');
+    svg().onkeydown!({ key: 'Home', preventDefault: () => {} });
+    expect(readout()).toContain('01.01.2026 – 31.01.2026');
+    expect(readout()).toContain('Housing: CHF 100.00');
+    svg().onpointermove!({ clientX: 156 });
+    expect(readout()).toContain('01.02.2026 – 02.02.2026');
+    svg().onpointerleave!();
+    expect(readout()).toContain('Selected range');
+    click('category-range-1M');
+    expect(get('category-from').attrs.value).toBe('2026-01-02');
+    get('category-from').value = '2026-02-02'; get('category-from').onchange!();
+    expect(readout()).toContain('Housing: CHF 0.00');
+    get('category-to').value = '2026-01-01'; get('category-to').onchange!();
+    expect(svg()).toBeUndefined();
+    get('category-to').value = '9999-01-01'; get('category-to').onchange!();
+    expect(svg()).toBeUndefined();
+    click('category-range-All');
+    expect(readout()).toContain('Housing: CHF 200.00');
+  });
+
+  it('keeps hidden-month gaps and hidden-category rollups consistent with the report', async () => {
+    const { selectRow, svg, readout } = await fixture({ hiddenCats: ['Rent'], hiddenMonths: ['2026-02'] });
+    selectRow('Housing');
+    expect(readout()).toContain('Housing: CHF 20.00'); // Utilities remains selected below hidden Rent
+    svg().onkeydown!({ key: 'End', preventDefault: () => {} });
+    expect(readout()).toContain('Hidden by month filters');
+    const path = all(svg()).find((el) => el.attrs['data-category-line'] === 'Housing')!;
+    expect(path.attrs.d).not.toContain('L');
+  });
+
+  it('reports percentage gaps when the current measure has no denominator', async () => {
+    const { add, click, svg, readout } = await fixture({ measure: 'income' });
+    add('Salary'); click('category-unit-%');
+    svg().onkeydown!({ key: 'End', preventDefault: () => {} });
+    expect(readout()).toContain('Share unavailable (zero total)');
+    svg().onkeydown!({ key: 'Home', preventDefault: () => {} });
+    expect(readout()).toContain('Salary: 100.00%');
+    svg().onkeydown!({ key: 'Escape', preventDefault: () => {} });
+    expect(readout()).toContain('Selected range');
+  });
+});

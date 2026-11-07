@@ -3,6 +3,7 @@ import type { Agg, Month, Tx } from '../../types';
 import { cashEntryTx, cashOpeningBalance, isUncountedCashTransfer, uniqueReconciliationCategory } from '../../cash';
 import { balanceSummary } from '../balanceChart';
 import { spendingSummary } from '../spendingSummary';
+import { categoryTrends } from '../categoryTrends';
 import { state, selectSettings, saveSpendingView, emit, type AvgMode } from '../../state';
 import { aggregate, buildTree, flattenTree, matchTx, monthsFromTxs, UNCAT, type TreeNode } from '../../categories/engine';
 import { C, clear, cx, dmy, field, h, money, monthLabel, monthKey, num0, num2, sourceGroup, toast } from '../util';
@@ -823,7 +824,11 @@ export function renderSpending(container: HTMLElement): void {
         Ic(ChartPie, 'size-4'), 'Share',
         h('span', { class: 'flex-1' }),
         subsChip),
-      shareBars(shareItems, measureName, { total: shareTotal, denominator: shareDenominator }))));
+      categoryTrends({
+        items: shareItems, measure, measureName, total: shareTotal, denominator: shareDenominator,
+        roots, txByTag: agg.txByTag, scopeRows, hiddenCats: view.hiddenCats, visibleMonths, hiddenMonths: view.hiddenMonths,
+        dateFrom: view.dateFrom, dateTo: view.dateTo,
+      }))));
 
   // ---- footer: dashboard summary (about/contact lives in the global app footer — see main.ts) ----
   container.appendChild(spendingSummary({

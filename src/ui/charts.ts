@@ -218,7 +218,7 @@ export interface ShareItem {
 export function shareBars(
   items: ShareItem[],
   totalLabel: string,
-  opts: { total?: number; denominator?: number } = {},
+  opts: { total?: number; denominator?: number; onCategoryClick?: (name: string) => void; selected?: ReadonlySet<string> } = {},
 ): HTMLElement {
   const NAME_MIN = 72; // px
   const NAME_MAX = 240; // wider names truncate, the full text is in the tooltip
@@ -285,10 +285,23 @@ export function shareBars(
     valEl.className = 'truncate text-right text-muted-foreground tabular-nums';
     valEl.textContent = num2(it.value); // currency is stated once in the headline, not on every row
 
-    const row = document.createElement('div');
+    const row = document.createElement(opts.onCategoryClick ? 'button' : 'div');
     // zebra striping like the CSV/Spending tables — alternating over all rows,
     // including the sub-category rows inside a group
     row.className = 'grid items-center gap-2 text-xs ' + (rows.length % 2 === 1 ? 'bg-zebra' : 'bg-card');
+    if (opts.onCategoryClick) {
+      const active = opts.selected?.has(it.name) === true;
+      row.className += ' share-category-row w-full cursor-pointer text-left focus-visible:outline-2 focus-visible:outline-primary';
+      if (active) row.className += ' share-category-selected';
+      row.setAttribute('type', 'button');
+      row.setAttribute('aria-pressed', String(active));
+      row.setAttribute('aria-controls', 'category-trends-panel');
+      row.setAttribute('data-category', it.name);
+      row.setAttribute('data-fk', `share-category-${encodeURIComponent(it.name)}`);
+      row.title = `${active ? 'Remove' : 'Add'} ${it.name} ${active ? 'from' : 'to'} category trends`;
+      row.onclick = () => opts.onCategoryClick!(it.name);
+      if (active) { name.textContent = `✓ ${it.name}`; label.textContent = `✓ ${it.name}`; }
+    }
     // start mobile-style (name inside the bar); apply() switches once the size is known
     row.style.gridTemplateColumns = hasNote ? `1fr 48px 92px ${NOTE_COL}px` : '1fr 48px 92px';
     name.style.display = 'none';

@@ -91,6 +91,8 @@
 .balance-card:hover { background: var(--subtle); }
 .balance-card-active { box-shadow: inset 0 -3px var(--balance-color); }
 .balance-legend-active { background: var(--accent-soft); }
+.share-category-row:hover { background: var(--subtle); }
+.share-category-selected { background: var(--accent-soft); box-shadow: inset 3px 0 var(--primary); }
 
 /* tree-jump highlight (class toggled from JS) */
 .flash-card {
