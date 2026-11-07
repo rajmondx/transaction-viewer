@@ -33,7 +33,7 @@ export function buildBalanceHistory(
 const iso = (date: Date): string => date.toISOString().slice(0, 10);
 const utc = (date: string): Date => new Date(`${date}T00:00:00Z`);
 
-function periodEnd(date: string, spacing: BalanceSpacing): string {
+export function periodEnd(date: string, spacing: BalanceSpacing): string {
   const d = utc(date);
   if (spacing === 'Weekly') d.setUTCDate(d.getUTCDate() + (7 - d.getUTCDay()) % 7); // Monday–Sunday
   if (spacing === 'Monthly') d.setUTCMonth(d.getUTCMonth() + 1, 0);

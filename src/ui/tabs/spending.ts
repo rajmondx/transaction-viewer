@@ -1,8 +1,8 @@
-import { SlidersHorizontal, CalendarDays, CalendarRange, Calculator, ChartColumn, ChartPie, ChevronDown, ChevronRight, ArrowLeft, ArrowLeftRight, Banknote, Eye, Pin, Printer, ReceiptText, Tags, TrendingDown, TrendingUp, Type } from 'lucide';
-import type { IconNode } from 'lucide';
+import { SlidersHorizontal, CalendarDays, CalendarRange, Calculator, ChartColumn, ChartPie, ChevronDown, ChevronRight, ArrowLeft, Banknote, Eye, Pin, Printer, ReceiptText, Type } from 'lucide';
 import type { Agg, Month, Tx } from '../../types';
 import { cashEntryTx, cashOpeningBalance, isUncountedCashTransfer, uniqueReconciliationCategory } from '../../cash';
 import { balanceSummary } from '../balanceChart';
+import { spendingSummary } from '../spendingSummary';
 import { state, selectSettings, saveSpendingView, emit, type AvgMode } from '../../state';
 import { aggregate, buildTree, flattenTree, matchTx, monthsFromTxs, UNCAT, type TreeNode } from '../../categories/engine';
 import { C, clear, cx, dmy, field, h, money, monthLabel, monthKey, num0, num2, sourceGroup, toast } from '../util';
@@ -826,15 +826,11 @@ export function renderSpending(container: HTMLElement): void {
       shareBars(shareItems, measureName, { total: shareTotal, denominator: shareDenominator }))));
 
   // ---- footer: dashboard summary (about/contact lives in the global app footer — see main.ts) ----
-  container.appendChild(
-    h('div', { class: 'mt-4 grid gap-2.5 grid-cols-[repeat(auto-fit,minmax(140px,1fr))]' },
-      summaryCard('Income', money(sCredit), 'text-success', TrendingUp),
-      summaryCard('Expenses', money(sDebit), 'text-danger', TrendingDown),
-      summaryCard('Net', money(sCredit - sDebit), sCredit - sDebit >= 0 ? 'text-success' : 'text-danger', ArrowLeftRight),
-      summaryCard('Transactions', String(sCount), '', ReceiptText),
-      summaryCard('Categorized', `${coverage.toFixed(1)} %`, '', Tags),
-    ),
-  );
+  container.appendChild(spendingSummary({
+    totals: { income: sCredit, expenses: sDebit, net: sCredit - sDebit, transactions: sCount, categorizedAmount: catDebit },
+    txByTag: agg.txByTag, scopeRows, hiddenCats: view.hiddenCats, hiddenMonths: view.hiddenMonths,
+    visibleMonths, reconciliationCategory, dateFrom: view.dateFrom, dateTo: view.dateTo,
+  }));
 
   // ---- print ----
 
@@ -1052,12 +1048,6 @@ export function renderSpending(container: HTMLElement): void {
   function persist(): void {
     saveSpendingView(state.activeSettingsName, state.spendingView);
   }
-}
-
-function summaryCard(label: string, value: string, tone: string, icon: IconNode): HTMLElement {
-  return h('div', { class: cx(C.card, 'px-3.5 py-2.5') },
-    h('div', { class: cx(C.label, 'flex items-center gap-1.5') }, Ic(icon, 'size-3.5'), label),
-    h('div', { class: cx('mt-0.5 text-[19px] font-bold', tone), text: value }));
 }
 
 function cssEsc(s: string): string {

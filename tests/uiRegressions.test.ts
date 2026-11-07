@@ -18,6 +18,8 @@ class ElementStub {
   onchange?: () => void;
   onclick?: () => void;
   onkeydown?: (event: { key: string; preventDefault: () => void }) => void;
+  onpointermove?: (event: { clientX: number }) => void;
+  onpointerleave?: () => void;
   classList = { add: () => {}, remove: () => {}, toggle: () => {} };
   constructor(readonly tag: string) {}
   setAttribute(key: string, value: string): void {
@@ -35,7 +37,7 @@ class ElementStub {
   removeChild(child: ElementStub): void { this.children.splice(this.children.indexOf(child), 1); }
   remove(): void { this.parent?.removeChild(this); }
   addEventListener(event: string, fn: () => void): void { (this.events[event] ??= []).push(fn); }
-  getBoundingClientRect(): { width: number } { return { width: 156 }; }
+  getBoundingClientRect(): { width: number; left: number } { return { width: 156, left: 0 }; }
   querySelector(selector: string): ElementStub | undefined {
     const fk = selector.match(/\[data-fk="([^"]+)"\]/)?.[1];
     return all(this).find((el) => el.dataset.fk === fk);
@@ -218,5 +220,177 @@ describe('shared balance chart', () => {
     const root = balanceSummary([], [], emptySettings('test'), 10) as unknown as ElementStub;
     all(root).find((el) => el.dataset.fk === 'balance-cash')!.events.click.forEach((fn) => fn());
     expect(text(root)).toContain('No dated transactions to chart yet.');
+  });
+});
+
+describe('Spending summary timeline', () => {
+  async function fixture(hiddenMonths: string[] = []) {
+    const { spendingSummary } = await import('../src/ui/spendingSummary');
+    const { buildSpendingDays, sumSpending } = await import('../src/spendingHistory');
+    const { parseWithMapper } = await import('../src/csv/parse');
+    const rows = parseWithMapper('Date,Description,Amount\n2026-01-01,salary,100\n2026-01-02,food,-60\n2026-02-10,unknown,-40\n2026-02-15,salary,200', 'test.csv', {
+      name: 'Custom', columns: { bookingDate: 'Date', text: 'Description', amount: 'Amount' },
+    }).txs;
+    const assignments = new Map([
+      ['Income', rows.filter((row) => row.text === 'salary')],
+      ['Food', rows.filter((row) => row.text === 'food')],
+      ['Uncategorized', rows.filter((row) => row.text === 'unknown')],
+    ]);
+    const months = ['2026-01', '2026-02'].filter((month) => !hiddenMonths.includes(month));
+    const totals = sumSpending(buildSpendingDays(assignments, [], months, 'Corrections'));
+    const root = spendingSummary({
+      totals, txByTag: assignments, scopeRows: rows, hiddenCats: [], hiddenMonths, visibleMonths: months,
+      reconciliationCategory: 'Corrections', dateFrom: '', dateTo: '',
+    }) as unknown as ElementStub;
+    const get = (fk: string) => all(root).find((el) => el.dataset.fk === fk)!;
+    const click = (fk: string) => get(fk).events.click.forEach((fn) => fn());
+    const svg = () => all(root).find((el) => el.tag === 'svg' && el.attrs['aria-label']?.startsWith('Spending summary timeline'))!;
+    const readout = () => text(all(root).find((el) => 'data-spending-readout' in el.attrs)!);
+    return { root, get, click, svg, readout };
+  }
+
+  it('toggles money lines, transaction bars and coverage inside one shared SVG', async () => {
+    const { root, get, click, svg } = await fixture();
+    expect(svg()).toBeUndefined();
+    for (const key of ['income', 'expenses', 'net', 'transactions', 'categorized']) click(`spending-summary-${key}`);
+    expect(all(root).filter((el) => el.tag === 'svg' && el.attrs['aria-label']?.startsWith('Spending summary timeline'))).toHaveLength(1);
+    expect(all(svg()).filter((el) => el.attrs['data-lane']).map((el) => el.attrs['data-lane'])).toEqual(['money', 'transactions', 'categorized']);
+    const initialHeight = Number(svg().attrs.height);
+    click('summary-legend-transactions');
+    expect(get('spending-summary-transactions').attrs['aria-pressed']).toBe('false');
+    expect(Number(svg().attrs.height)).toBeLessThan(initialHeight);
+    expect(all(svg()).some((el) => el.attrs['data-lane'] === 'transactions')).toBe(false);
+    for (const key of ['income', 'expenses', 'net', 'categorized']) click(`spending-summary-${key}`);
+    expect(svg()).toBeUndefined();
+  });
+
+  it('supports count-only and coverage-only charts without a money axis', async () => {
+    const { click, svg, readout } = await fixture();
+    click('spending-summary-transactions');
+    expect(all(svg()).filter((el) => el.attrs['data-lane']).map((el) => el.attrs['data-lane'])).toEqual(['transactions']);
+    expect(readout()).toContain('Transactions: 4');
+    click('spending-summary-categorized'); click('spending-summary-transactions');
+    expect(all(svg()).filter((el) => el.attrs['data-lane']).map((el) => el.attrs['data-lane'])).toEqual(['categorized']);
+    expect(readout()).toContain('Categorized: 60.0%');
+    expect(readout()).toContain('CHF 40.00 uncategorized');
+  });
+
+  it('synchronizes hover and keyboard readouts and restores weighted range totals', async () => {
+    const { click, svg, readout } = await fixture();
+    for (const key of ['income', 'expenses', 'net', 'transactions', 'categorized']) click(`spending-summary-${key}`);
+    const key = (value: string) => svg().onkeydown!({ key: value, preventDefault: () => {} });
+    key('Home');
+    expect(readout()).toContain('01.01.2026 – 31.01.2026');
+    expect(readout()).toContain('Income: CHF 100.00');
+    expect(readout()).toContain('Expenses: CHF 60.00');
+    expect(readout()).toContain('Net: CHF 40.00');
+    expect(readout()).toContain('Transactions: 2');
+    expect(readout()).toContain('Categorized: 100.0%');
+    key('End');
+    expect(readout()).toContain('Categorized: 0.0%');
+    key('Escape');
+    expect(readout()).toContain('Selected range');
+    expect(readout()).toContain('Categorized: 60.0%');
+    svg().onpointermove!({ clientX: 156 });
+    expect(readout()).toContain('01.02.2026 – 15.02.2026');
+    svg().onpointerleave!();
+    expect(readout()).toContain('Selected range');
+    expect(readout()).toContain('Transactions: 4');
+  });
+
+  it('shares all five spacing choices, custom ranges and presets without changing report cards', async () => {
+    const { get, click, svg, readout } = await fixture();
+    click('spending-summary-income'); click('spending-summary-transactions');
+    for (const spacing of ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Yearly']) {
+      click(`summary-spacing-${spacing}`);
+      expect(get(`summary-spacing-${spacing}`).attrs['aria-pressed']).toBe('true');
+    }
+    expect(all(svg()).some((el) => el.tag === 'circle' && el.attrs.r === '3')).toBe(true); // one yearly point
+    click('summary-range-1M');
+    expect(get('summary-from').attrs.value).toBe('2026-01-15');
+    expect(readout()).toContain('Income: CHF 200.00');
+    expect(text(get('spending-summary-income'))).toContain('CHF 300.00');
+    get('summary-from').value = '2026-02-15'; get('summary-from').onchange!();
+    get('summary-to').value = '2026-01-01'; get('summary-to').onchange!();
+    expect(svg()).toBeUndefined();
+    get('summary-to').value = '9999-01-01'; get('summary-to').onchange!();
+    expect(svg()).toBeUndefined();
+    click('summary-range-All');
+    expect(readout()).toContain('Income: CHF 300.00');
+  });
+
+  it('keeps hidden months as gaps and can close the whole panel', async () => {
+    const { root, click, svg, readout } = await fixture(['2026-01']);
+    click('spending-summary-income'); click('spending-summary-categorized');
+    svg().onkeydown!({ key: 'Home', preventDefault: () => {} });
+    expect(readout()).toContain('Hidden by month filters');
+    svg().onkeydown!({ key: 'End', preventDefault: () => {} });
+    expect(readout()).toContain('Income: CHF 200.00');
+    all(root).find((el) => el.attrs['aria-label'] === 'Close spending summary chart')!.events.click.forEach((fn) => fn());
+    expect(svg()).toBeUndefined();
+  });
+
+  it('shows an empty state for reports without dated rows', async () => {
+    const { spendingSummary } = await import('../src/ui/spendingSummary');
+    const { emptySpendingTotals } = await import('../src/spendingHistory');
+    const root = spendingSummary({
+      totals: emptySpendingTotals(), txByTag: new Map(), scopeRows: [], hiddenCats: [], hiddenMonths: [],
+      visibleMonths: [], reconciliationCategory: 'Corrections', dateFrom: '', dateTo: '',
+    }) as unknown as ElementStub;
+    all(root).find((el) => el.dataset.fk === 'spending-summary-categorized')!.events.click.forEach((fn) => fn());
+    expect(text(root)).toContain('No dated transactions in the current Spending filters.');
+    expect(text(root)).toContain('No expenses');
+  });
+
+  it('matches the real Spending source, category, month and cash-transfer filters', async () => {
+    const { state } = await import('../src/state');
+    const { emptySettings } = await import('../src/categories/schema');
+    const { parseWithMapper } = await import('../src/csv/parse');
+    const { renderSpending } = await import('../src/ui/tabs/spending');
+    const { money } = await import('../src/ui/util');
+    state.settings = emptySettings('test');
+    for (const tag of ['Food', 'ATM']) state.settings.categories.push({
+      tag, tagFather: null, color: '#123456', ibans: [], dateFrom: null, dateTo: null, enabled: true,
+      rules: [{ text: tag.toLowerCase(), caseSensitive: false, fuzzy: false, regex: false }],
+      ...(tag === 'ATM' ? { cashMovement: 'withdrawal' as const } : {}),
+    });
+    state.files = [{ name: 'test.csv', rows: 3, mapper: 'Custom' }];
+    state.txs = parseWithMapper('Date,Description,Amount\n2026-01-01,salary,1000\n2026-01-02,atm,-100\n2026-01-03,food,-40', 'test.csv', {
+      name: 'Custom', columns: { bookingDate: 'Date', text: 'Description', amount: 'Amount' },
+    }).txs;
+    state.cashEntries = [
+      { id: 'cash', date: '2026-01-04', kind: 'expense', amount: 12, category: 'Food', note: '' },
+      { id: 'adjust', date: '2026-01-05', kind: 'adjustment', amount: -2, category: '', note: '' },
+    ];
+    const container = host() as unknown as ElementStub;
+    const render = () => renderSpending(container as unknown as HTMLElement);
+    const click = (key: string) => all(container).find((el) => el.dataset.fk === `spending-summary-${key}`)!.events.click.forEach((fn) => fn());
+    const readout = () => text(all(container).find((el) => 'data-spending-readout' in el.attrs)!);
+    render(); click('income'); click('expenses'); click('transactions'); click('categorized');
+    expect(readout()).toContain(`Income: ${money(1000)}`);
+    expect(readout()).toContain('Expenses: CHF 54.00'); // ATM excluded, corrections included
+    expect(readout()).toContain('Transactions: 4');
+    expect(readout()).toContain('Categorized: 96.3%'); // 52 / 54
+    state.spendingView.source = 'bank'; render();
+    expect(readout()).toContain('Expenses: CHF 40.00');
+    expect(readout()).toContain('Transactions: 2');
+    state.spendingView.cashInSpending = ['ATM']; render();
+    expect(readout()).toContain('Expenses: CHF 140.00');
+    expect(readout()).toContain('Transactions: 3');
+    state.spendingView.cashInSpending = [];
+    state.spendingView.source = 'cash'; render();
+    expect(readout()).toContain('Expenses: CHF 14.00');
+    expect(readout()).toContain('Transactions: 2');
+    state.spendingView.hiddenCats = ['Food']; render();
+    expect(readout()).toContain('Expenses: CHF 2.00');
+    expect(readout()).toContain('Transactions: 1');
+    state.spendingView.hiddenMonths = ['2026-01']; render();
+    expect(readout()).toContain('Expenses: CHF 0.00');
+    expect(readout()).toContain('Categorized: No expenses');
+    state.spendingView.hiddenMonths = [];
+    state.spendingView.hiddenCats = [];
+    state.spendingView.dateFrom = '2026-01-05'; render();
+    expect(readout()).toContain('Expenses: CHF 2.00');
+    expect(readout()).toContain('Transactions: 1');
   });
 });
